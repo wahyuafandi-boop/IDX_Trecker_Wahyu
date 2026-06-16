@@ -1,0 +1,54 @@
+# Markup Radar — konfigurasi engine
+# Threshold di sini adalah DEFAULT awal. Wajib di-tune via backtesting (Phase 5).
+
+# Universe saham yang di-scan tiap hari (EOD).
+# Bisa diganti dengan LQ45 / IDX30 / watchlist manual.
+watchlist:
+  - BBCA
+  - BBRI
+  - BMRI
+  - TLKM
+  - ASII
+
+# Window perhitungan rolling.
+windows:
+  volume_ma: 20        # MA20 untuk RVOL (S6)
+  ihsg_ma: 50          # MA50 IHSG (S9)
+  broker_streak_lookback: 5  # berapa hari ke belakang untuk net-buy streak (S3)
+
+# Top-N broker untuk net flow & concentration (S3, S4).
+broker:
+  top_n: 5
+
+# Threshold sinyal (lihat spec §3 & §4).
+thresholds:
+  done_ratio_buyer: 0.55      # S1: > buyer control
+  done_ratio_seller: 0.45     # S1: < seller control
+  done_ratio_markup: 0.60     # gate MARKUP_START
+  done_ratio_distribution: 0.40
+  rvol_spike: 2.0             # S6
+  close_in_range_strong: 0.60 # S7
+  queue_imbalance_demand: 1.0 # S5
+  absorption_min_rvol: 1.5    # S2: butuh volume "tinggi"
+  broker_net_buy_streak_min: 3  # ACCUMULATION_ONGOING
+  near_range_high: 0.80       # DISTRIBUTION_WARNING
+
+# Bobot confidence score MARKUP_START (total 100), lihat spec §4.
+score_weights:
+  done_ratio: 25
+  rvol: 20
+  close_in_range: 15
+  broker_streak: 20
+  queue_imbalance: 10
+  ihsg: 10
+
+# State yang dianggap actionable untuk dikirim ke alert.
+alert_states:
+  - MARKUP_START
+  - ACCUMULATION_ONGOING
+  - DISTRIBUTION_WARNING
+
+# Aktifkan narasi via Claude API (opsional, Phase 6).
+narrative:
+  enabled: false
+  model: claude-opus-4-8

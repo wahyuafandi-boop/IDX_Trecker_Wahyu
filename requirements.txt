@@ -1,0 +1,12 @@
+# Core
+pandas>=2.2
+numpy>=1.26
+requests>=2.31
+PyYAML>=6.0
+python-dotenv>=1.0
+
+# Optional: narrative generation
+anthropic>=0.40
+
+# Dev / test
+pytest>=8.0
