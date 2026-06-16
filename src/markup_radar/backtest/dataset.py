@@ -47,39 +47,65 @@ def _lookup(df: pd.DataFrame, date: pd.Timestamp, col: str, default=0.0) -> floa
     return float(val) if pd.notna(val) else default
 
 
-def load_history(client, code: str, date_from: str, date_to: str) -> HistoricalDataset:
-    """Rakit HistoricalDataset dari Invezgo API.
+def load_history(
+    client, code: str, date_from: str, date_to: str, cache=None
+) -> HistoricalDataset:
+    """Rakit HistoricalDataset dari Invezgo API, dengan cache SQLite opsional.
 
-    ⚠️ API-HEAVY: done detail (momentum-chart) bersifat per-tanggal sehingga
-    ditarik per hari bursa. Untuk universe besar / rentang panjang, cache hasil
-    ke SQLite dulu. Field done/broker bergantung shape yang masih TODO(verify).
+    Bila `cache` (store.HistoryCache) diberikan, data dibaca dari cache lebih
+    dulu dan hanya tanggal yang belum ada yang ditarik dari API — krusial untuk
+    done detail (momentum-chart) yang per-tanggal & mahal.
+
+    Field done/broker bergantung shape yang masih TODO(verify).
     """
     from markup_radar.ingest.broker_client import fetch_broker_daily_net
     from markup_radar.ingest.done_client import fetch_done_breakdown
     from markup_radar.ingest.ihsg_client import fetch_ihsg
     from markup_radar.ingest.ohlc_client import fetch_ohlcv
 
-    ohlcv = fetch_ohlcv(client, code, date_from, date_to)
-    ihsg = fetch_ihsg(client, date_from, date_to)
+    # --- OHLCV (1 call) ---
+    ohlcv = cache.get_ohlcv(code, date_from, date_to) if cache else pd.DataFrame()
+    if ohlcv.empty:
+        ohlcv = fetch_ohlcv(client, code, date_from, date_to)
+        if cache:
+            cache.put_ohlcv(code, ohlcv)
 
-    net = fetch_broker_daily_net(client, code, date_from, date_to)
-    broker_df = pd.DataFrame(
-        {"date": list(ohlcv["date"])[-len(net):], "net": net}
-    ) if net and not ohlcv.empty else pd.DataFrame()
+    # --- IHSG (1 call, market-wide) ---
+    ihsg = cache.get_ihsg(date_from, date_to) if cache else pd.DataFrame()
+    if ihsg.empty:
+        ihsg = fetch_ihsg(client, date_from, date_to)
+        if cache:
+            cache.put_ihsg(ihsg)
 
-    done_rows = []
-    for d in ohlcv["date"] if not ohlcv.empty else []:
-        ds = pd.Timestamp(d).date().isoformat()
+    # --- Broker daily net (1 call) ---
+    broker_df = cache.get_broker_net(code, date_from, date_to) if cache else pd.DataFrame()
+    if broker_df.empty:
+        net = fetch_broker_daily_net(client, code, date_from, date_to)
+        if net and not ohlcv.empty:
+            broker_df = pd.DataFrame({"date": list(ohlcv["date"])[-len(net):], "net": net})
+            if cache:
+                cache.put_broker_net(code, broker_df)
+
+    # --- Done detail (per-tanggal): tarik hanya tanggal yang belum di-cache ---
+    dates = list(ohlcv["date"]) if not ohlcv.empty else []
+    have = cache.cached_done_dates(code) if cache else set()
+    fresh_rows = []
+    for d in dates:
+        ds = pd.Timestamp(d).strftime("%Y-%m-%d")
+        if ds in have:
+            continue
         try:
-            br = fetch_done_breakdown(client, code, ds)
-            done_rows.append({"date": ds, **br})
+            fresh_rows.append({"date": ds, **fetch_done_breakdown(client, code, ds)})
         except Exception:  # noqa: BLE001 — degrade per tanggal
             continue
+    if fresh_rows and cache:
+        cache.put_done(code, pd.DataFrame(fresh_rows))
+    done = cache.get_done(code, date_from, date_to) if cache else pd.DataFrame(fresh_rows)
 
     return HistoricalDataset(
         code=code,
         ohlcv=ohlcv,
-        done=pd.DataFrame(done_rows),
+        done=done,
         broker_daily_net=broker_df,
         ihsg=ihsg,
     )

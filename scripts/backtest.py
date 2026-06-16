@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from markup_radar.backtest import load_history, replay, summarize, tune
 from markup_radar.config import load_settings
 from markup_radar.ingest import InvezgoClient
+from markup_radar.store import HistoryCache
 
 
 def main() -> int:
@@ -35,19 +36,22 @@ def main() -> int:
     ap.add_argument("--target-up", type=float, default=0.05, help="ambang markup sukses")
     ap.add_argument("--target-down", type=float, default=0.05, help="ambang distribusi sukses")
     ap.add_argument("--tune", action="store_true", help="grid-search done_ratio_markup")
+    ap.add_argument("--no-cache", action="store_true", help="abaikan cache SQLite (selalu tarik API)")
     args = ap.parse_args()
 
     cfg = load_settings()
     client = InvezgoClient(
         cfg.invezgo_api_key, cfg.invezgo_base_url, rate_limit_per_min=cfg.rate_limit_per_min
     )
+    cache = None if args.no_cache else HistoryCache(cfg.db_path)
     codes = [args.code] if args.code else cfg.watchlist
 
     all_results = []
     for code in codes:
-        print(f"[load] {code} {args.date_from}..{args.date_to}", file=sys.stderr)
+        print(f"[load] {code} {args.date_from}..{args.date_to}"
+              f"{' (cache)' if cache else ''}", file=sys.stderr)
         try:
-            ds = load_history(client, code, args.date_from, args.date_to)
+            ds = load_history(client, code, args.date_from, args.date_to, cache)
             res = replay(ds, cfg.thresholds, cfg.windows, top_n=cfg.broker_top_n, horizon=args.horizon)
         except Exception as exc:  # noqa: BLE001
             print(f"[WARN] {code}: {exc}", file=sys.stderr)
@@ -58,6 +62,9 @@ def main() -> int:
             print("\n=== Threshold tuning (done_ratio_markup) ===")
             print(tune(ds, cfg.thresholds, cfg.windows, horizon=args.horizon,
                        target_up=args.target_up, top_n=cfg.broker_top_n).to_string(index=False))
+
+    if cache:
+        cache.close()
 
     if not all_results:
         print("Tidak ada hasil (cek API key / ketersediaan data historis).")

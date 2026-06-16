@@ -33,7 +33,7 @@ src/markup_radar/
   ingest/        InvezgoClient + normalizer per sumber data
   signals/       S1..S9 (pure pandas, teruji)
   scoring/       classifier (rule §4) + confidence score
-  store/         SQLite (audit & backtesting)
+  store/         SQLite — hasil harian (Store) + cache historis (HistoryCache)
   alert/         Telegram
   narrative/     Claude API (opsional)
   backtest/      replay histori + akurasi per state + tuning (Phase 5)
@@ -83,6 +83,11 @@ return** N hari ke depan dan melaporkan **hit-rate per state**:
 
 `--tune` melakukan grid-search `done_ratio_markup` untuk cari keseimbangan
 jumlah sinyal vs hit-rate → dipakai set threshold final di `settings.yaml`.
+
+**Cache historis**: `load_history` membaca dari SQLite (`HistoryCache`) lebih
+dulu dan hanya menarik tanggal yang belum ada dari API — done detail
+(per-tanggal, paling mahal) cukup ditarik sekali. Run backtest kedua = 0 API
+call. Pakai `--no-cache` untuk paksa tarik ulang.
 
 ## Otomatisasi (GitHub Actions)
 
