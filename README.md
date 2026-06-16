@@ -5,8 +5,9 @@ akumulasi** atau **mulai transisi ke markup**, berbasis **Wyckoff Smart Money +
 Bandarmologi**. Data dari **[Invezgo](https://invezgo.com)** (REST API).
 
 > Spec lengkap & metodologi: [`markup-radar-spec-1.md`](markup-radar-spec-1.md).
-> Status: **scaffold** — signal engine + classifier sudah jalan & teruji;
-> beberapa path endpoint Invezgo masih perlu diverifikasi (Phase 0).
+> Status: signal engine, classifier, alerting & **backtesting (Phase 5)** sudah
+> jalan & teruji; beberapa path endpoint Invezgo masih perlu diverifikasi
+> (Phase 0) sebelum data live.
 
 ## Kenapa Invezgo
 
@@ -35,10 +36,12 @@ src/markup_radar/
   store/         SQLite (audit & backtesting)
   alert/         Telegram
   narrative/     Claude API (opsional)
+  backtest/      replay histori + akurasi per state + tuning (Phase 5)
 scripts/
   verify_data.py Phase 0 — cek shape data Invezgo (gating question)
   run_daily.py   entrypoint EOD
-tests/           PyTest (signals + classifier)
+  backtest.py    Phase 5 — backtest & threshold tuning
+tests/           PyTest (signals, classifier, ingest, backtest)
 ```
 
 ## Setup
@@ -60,9 +63,26 @@ python scripts/verify_data.py --code BBCA --date 2026-06-16
 python scripts/run_daily.py                 # hari ini
 python scripts/run_daily.py --date 2026-06-16 --dry-run
 
+# Backtest & tuning (Phase 5)
+python scripts/backtest.py --from 2024-01-01 --to 2026-06-01
+python scripts/backtest.py --code BBRI --from 2024-01-01 --to 2026-06-01 --tune
+
 # Test
 pytest -q
 ```
+
+### Backtest output
+
+`backtest.py` mereplay classifier hari-demi-hari lalu mengukur **forward
+return** N hari ke depan dan melaporkan **hit-rate per state**:
+
+| state | n | hit_rate | avg_fwd_max | avg_fwd_close |
+|---|---|---|---|---|
+| MARKUP_START | … | berapa % diikuti markup ≥ target_up | … | … |
+| DISTRIBUTION_WARNING | … | berapa % diikuti penurunan | … | … |
+
+`--tune` melakukan grid-search `done_ratio_markup` untuk cari keseimbangan
+jumlah sinyal vs hit-rate → dipakai set threshold final di `settings.yaml`.
 
 ## Otomatisasi (GitHub Actions)
 
