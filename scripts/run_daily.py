@@ -23,9 +23,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from markup_radar.alert import format_alert, send_telegram
 from markup_radar.config import load_settings
 from markup_radar.ingest import InvezgoClient
-from markup_radar.ingest.broker_client import fetch_broker_summary, fetch_closing_queue
+from markup_radar.ingest.broker_client import (
+    fetch_broker_daily_net,
+    fetch_broker_summary,
+    fetch_closing_queue,
+)
 from markup_radar.ingest.done_client import fetch_done_breakdown
-from markup_radar.ingest.foreign_client import fetch_foreign_net
+from markup_radar.ingest.foreign_client import fetch_foreign_map, foreign_net_for
 from markup_radar.ingest.ihsg_client import fetch_ihsg
 from markup_radar.ingest.ohlc_client import fetch_ohlcv
 from markup_radar.narrative import generate_narrative
@@ -39,27 +43,30 @@ def _date_range(end: dt.date, days_back: int) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
-def build_stock_data(client: InvezgoClient, code: str, date: dt.date, cfg) -> StockData:
-    """Tarik & normalisasi semua data EOD untuk satu saham."""
+def build_stock_data(
+    client: InvezgoClient,
+    code: str,
+    date: dt.date,
+    cfg,
+    *,
+    ihsg_close,
+    foreign_map: dict[str, float],
+) -> StockData:
+    """Tarik & normalisasi data EOD per saham (5 call/saham).
+
+    IHSG & foreign sudah ditarik 1x per run dan di-inject ke sini.
+    """
     windows = cfg.windows
     ohlc_from, ohlc_to = _date_range(date, max(windows.get("volume_ma", 20) * 2, 60))
     streak_lb = windows.get("broker_streak_lookback", 5)
 
-    ohlcv = fetch_ohlcv(client, code, ohlc_from, ohlc_to)
-    done = fetch_done_breakdown(client, code, date.isoformat())
-    queue = fetch_closing_queue(client, code)
-
-    # Broker summary per hari (untuk streak S3) + agregat range (untuk concentration S4).
-    daily_net: list[float] = []
-    for i in range(streak_lb, -1, -1):
-        d = (date - dt.timedelta(days=i)).isoformat()
-        bs = fetch_broker_summary(client, code, d, d)
-        if not bs.empty:
-            top = bs.nlargest(cfg.broker_top_n, "net_value")["net_value"].sum()
-            daily_net.append(float(top))
-    broker_agg = fetch_broker_summary(client, code, *_date_range(date, streak_lb))
-
-    ihsg = fetch_ihsg(client, *_date_range(date, windows.get("ihsg_ma", 50) * 2))
+    ohlcv = fetch_ohlcv(client, code, ohlc_from, ohlc_to)              # 1
+    done = fetch_done_breakdown(client, code, date.isoformat())       # 2
+    queue = fetch_closing_queue(client, code)                         # 3
+    # Streak S3 dari 1 call inventory-chart (bukan loop per hari).
+    daily_net = fetch_broker_daily_net(client, code, *_date_range(date, streak_lb))  # 4
+    # Concentration S4 dari agregat range.
+    broker_agg = fetch_broker_summary(client, code, *_date_range(date, streak_lb))   # 5
 
     return StockData(
         code=code,
@@ -70,8 +77,8 @@ def build_stock_data(client: InvezgoClient, code: str, date: dt.date, cfg) -> St
         broker_daily_net=daily_net,
         closing_bid_volume=queue["bid_volume"],
         closing_offer_volume=queue["offer_volume"],
-        foreign_net_value=fetch_foreign_net(client, code, date.isoformat()),
-        ihsg_close=ihsg["close"] if not ihsg.empty else None,
+        foreign_net_value=foreign_net_for(code, foreign_map),
+        ihsg_close=ihsg_close,
     )
 
 
@@ -83,14 +90,30 @@ def main() -> int:
 
     cfg = load_settings()
     date = dt.date.fromisoformat(args.date)
-    client = InvezgoClient(cfg.invezgo_api_key, cfg.invezgo_base_url)
+    client = InvezgoClient(
+        cfg.invezgo_api_key,
+        cfg.invezgo_base_url,
+        rate_limit_per_min=cfg.rate_limit_per_min,
+    )
     store = Store(cfg.db_path)
     narrative_cfg = cfg.narrative
+
+    # Data market-wide: tarik 1x per run, dipakai semua saham (hemat kuota).
+    ihsg = fetch_ihsg(client, *_date_range(date, cfg.windows.get("ihsg_ma", 50) * 2))
+    ihsg_close = ihsg["close"] if not ihsg.empty else None
+    try:
+        foreign_map = fetch_foreign_map(client, date.isoformat())
+    except Exception as exc:  # noqa: BLE001 — foreign opsional (S8)
+        print(f"[WARN] foreign map: {exc}", file=sys.stderr)
+        foreign_map = {}
 
     actionable: list[dict] = []
     for code in cfg.watchlist:
         try:
-            data = build_stock_data(client, code, date, cfg)
+            data = build_stock_data(
+                client, code, date, cfg,
+                ihsg_close=ihsg_close, foreign_map=foreign_map,
+            )
             signals = compute_signals(data, cfg.thresholds, cfg.windows, cfg.broker_top_n)
             state = classify(signals, cfg.thresholds)
             conf = confidence_markup_start(signals, cfg.score_weights)

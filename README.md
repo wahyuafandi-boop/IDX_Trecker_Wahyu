@@ -97,5 +97,8 @@ sinyal, disimpan ke SQLite dan dikirim ke Telegram (state actionable saja).
   (OHLCV, stock/index list, kode IHSG).
 - **Threshold default** di `config/settings.yaml` — wajib di-tune via
   backtesting (spec Phase 5).
+- **Kuota & rate limit**: pemakaian ~**5 API call/saham/hari** (IHSG & foreign
+  ditarik 1x per run). Atur `api.rate_limit_per_min` di settings sesuai tier
+  Invezgo (Advance 250/min) — client throttle otomatis agar tidak kena 429.
 - **Signal-only**: tidak ada eksekusi order. Risk management tetap manual
   (spec §9).

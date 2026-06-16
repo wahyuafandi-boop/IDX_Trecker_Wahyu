@@ -40,6 +40,37 @@ def fetch_broker_summary(
     return pd.DataFrame.from_records(records)
 
 
+def fetch_broker_daily_net(
+    client: InvezgoClient, code: str, date_from: str, date_to: str
+) -> list[float]:
+    """Net broker besar per hari (kronologis) untuk S3 streak — 1 API call.
+
+    Pakai inventory-chart (time-series akumulasi/distribusi) alih-alih loop
+    broker-summary per tanggal. Tiap titik di-reduksi jadi satu skalar net
+    harian (positif = akumulasi). Return [] bila data tak tersedia (streak=0).
+
+    TODO(verify): shape inventory-chart Invezgo — sesuaikan field di bawah.
+    """
+    try:
+        raw = client.inventory_chart_stock(code, date_from, date_to)
+    except Exception:  # noqa: BLE001 — streak opsional, jangan gagalkan saham
+        return []
+
+    rows = raw if isinstance(raw, list) else raw.get("items", raw.get("data", []))
+    series: list[tuple] = []
+    for r in rows:
+        date = _pick(r, "date", "time", "timestamp")
+        net = _pick(r, "net", "netValue", "NetValue", "value", default=None)
+        if net is None:
+            buy = _pick(r, "buy", "buyValue", "Buy", default=0) or 0
+            sell = _pick(r, "sell", "sellValue", "Sell", default=0) or 0
+            net = buy - sell
+        series.append((date, float(net)))
+
+    series.sort(key=lambda x: x[0] or "")
+    return [net for _, net in series]
+
+
 def fetch_closing_queue(client: InvezgoClient, code: str) -> dict[str, float]:
     """Order book -> {bid_volume, offer_volume} di level teratas (S5)."""
     raw = client.order_book(code)

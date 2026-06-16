@@ -55,6 +55,10 @@ class Settings:
         return int(self.raw.get("broker", {}).get("top_n", 5))
 
     @property
+    def rate_limit_per_min(self) -> int:
+        return int(self.raw.get("api", {}).get("rate_limit_per_min", 250))
+
+    @property
     def alert_states(self) -> list[str]:
         return list(self.raw.get("alert_states", []))
 

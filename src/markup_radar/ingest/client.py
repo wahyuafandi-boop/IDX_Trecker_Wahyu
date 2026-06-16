@@ -28,6 +28,7 @@ Jalankan `scripts/verify_data.py` untuk konfirmasi sebelum produksi.
 from __future__ import annotations
 
 import time
+from collections import deque
 from typing import Any
 
 import requests
@@ -35,6 +36,32 @@ import requests
 
 class InvezgoError(RuntimeError):
     """Error dari pemanggilan Invezgo API."""
+
+
+class _RateLimiter:
+    """Throttle proaktif: maksimal `max_per_min` request dalam jendela 60 detik.
+
+    Mencegah kena HTTP 429 saat scan universe besar (mis. LQ45). Plan Developer
+    Invezgo membatasi 250-500 req/menit tergantung tier.
+    """
+
+    def __init__(self, max_per_min: int) -> None:
+        self.max_per_min = max_per_min
+        self._hits: deque[float] = deque()
+
+    def acquire(self) -> None:
+        if self.max_per_min <= 0:
+            return
+        now = time.monotonic()
+        # buang timestamp yang sudah > 60 detik.
+        while self._hits and now - self._hits[0] >= 60.0:
+            self._hits.popleft()
+        if len(self._hits) >= self.max_per_min:
+            sleep_for = 60.0 - (now - self._hits[0])
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+            return self.acquire()
+        self._hits.append(time.monotonic())
 
 
 class InvezgoClient:
@@ -47,6 +74,7 @@ class InvezgoClient:
         *,
         timeout: float = 30.0,
         max_retries: int = 3,
+        rate_limit_per_min: int = 250,
         session: requests.Session | None = None,
     ) -> None:
         if not api_key:
@@ -54,6 +82,7 @@ class InvezgoClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_retries = max_retries
+        self._limiter = _RateLimiter(rate_limit_per_min)
         self.session = session or requests.Session()
         self.session.headers.update(
             {
@@ -72,6 +101,7 @@ class InvezgoClient:
         last_exc: Exception | None = None
         for attempt in range(self.max_retries):
             try:
+                self._limiter.acquire()
                 resp = self.session.get(url, params=params, timeout=self.timeout)
                 if resp.status_code == 429:  # rate limit -> backoff
                     raise InvezgoError("rate limited (429)")

@@ -20,6 +20,11 @@ windows:
 broker:
   top_n: 5
 
+# Batas request API per menit (sesuaikan dengan tier Invezgo: Advance 250, dst).
+# Client akan throttle proaktif agar tidak kena HTTP 429.
+api:
+  rate_limit_per_min: 250
+
 # Threshold sinyal (lihat spec §3 & §4).
 thresholds:
   done_ratio_buyer: 0.55      # S1: > buyer control
