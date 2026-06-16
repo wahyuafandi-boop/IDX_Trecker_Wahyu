@@ -64,6 +64,26 @@ python scripts/run_daily.py --date 2026-06-16 --dry-run
 pytest -q
 ```
 
+## Otomatisasi (GitHub Actions)
+
+Workflow [`.github/workflows/daily.yml`](.github/workflows/daily.yml) menjalankan
+scan tiap hari kerja **10:00 UTC (17:00 WIB)** — setelah market IDX tutup — dan
+bisa juga di-trigger manual dari tab **Actions** (`workflow_dispatch`, dengan
+opsi `date` & `dry_run`).
+
+Set **Repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Wajib | Keterangan |
+|---|---|---|
+| `INVEZGO_API_KEY` | ✅ | API key Invezgo |
+| `TELEGRAM_BOT_TOKEN` | ✅ | bot token (untuk alert) |
+| `TELEGRAM_CHAT_ID` | ✅ | tujuan alert |
+| `INVEZGO_BASE_URL` | — | default `https://api.invezgo.com` |
+| `ANTHROPIC_API_KEY` | — | hanya bila narrative diaktifkan |
+
+Hasil SQLite di-upload sebagai artifact (`markup-radar-db`, retensi 30 hari)
+karena storage runner bersifat ephemeral.
+
 ## Output state
 
 `MARKUP_START` · `ACCUMULATION_ONGOING` · `DISTRIBUTION_WARNING` · `NEUTRAL` ·
