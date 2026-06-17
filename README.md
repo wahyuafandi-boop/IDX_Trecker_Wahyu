@@ -103,7 +103,7 @@ call. Pakai `--no-cache` untuk paksa tarik ulang.
 ## Otomatisasi (GitHub Actions)
 
 Workflow [`.github/workflows/daily.yml`](.github/workflows/daily.yml) menjalankan
-scan tiap hari kerja **10:00 UTC (17:00 WIB)** — setelah market IDX tutup — dan
+scan tiap hari kerja **12:00 UTC (19:00 WIB)** — setelah data harian update — dan
 bisa juga di-trigger manual dari tab **Actions** (`workflow_dispatch`, dengan
 opsi `date` & `dry_run`).
 

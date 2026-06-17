@@ -1,10 +1,10 @@
 name: Daily Markup Radar
 
-# EOD scan setelah market IDX tutup (~16:30 WIB).
-# Cron GitHub Actions pakai UTC: 10:00 UTC = 17:00 WIB (Senin–Jumat).
+# EOD scan setelah data harian Invezgo update (~18:00 WIB).
+# Cron GitHub Actions pakai UTC: 12:00 UTC = 19:00 WIB (Senin–Jumat).
 on:
   schedule:
-    - cron: "0 10 * * 1-5"
+    - cron: "0 12 * * 1-5"
   workflow_dispatch:        # bisa di-trigger manual dari tab Actions
     inputs:
       date:
