@@ -44,6 +44,17 @@ scripts/
 tests/           PyTest (signals, classifier, ingest, backtest)
 ```
 
+## Coba sekarang (tanpa API key)
+
+```bash
+pip install -r requirements.txt
+python scripts/demo.py
+```
+
+Menjalankan pipeline penuh dengan **data sintetis** — menampilkan klasifikasi
+4 skenario state, preview pesan alert Telegram, dan laporan backtest. Berguna
+untuk lihat output sebelum langganan Invezgo aktif.
+
 ## Setup
 
 ```bash
