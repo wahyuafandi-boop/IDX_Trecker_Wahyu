@@ -80,7 +80,9 @@ def load_settings(path: str | Path = DEFAULT_SETTINGS) -> Settings:
         # env var kosong (mis. secret CI tak di-set) -> pakai default, bukan "".
         invezgo_base_url=os.getenv("INVEZGO_BASE_URL") or "https://api.invezgo.com",
         telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
-        telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
+        # chat_id: env menimpa default di settings.yaml (token tetap env-only).
+        telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID")
+        or str(raw.get("telegram", {}).get("chat_id", "")),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
         db_path=os.getenv("MARKUP_RADAR_DB", "data/markup_radar.db"),
     )

@@ -53,6 +53,13 @@ alert_states:
   - ACCUMULATION_ONGOING
   - DISTRIBUTION_WARNING
 
+# Telegram: chat tujuan alert.
+# chat_id boleh di sini (bukan rahasia). TOKEN WAJIB lewat env/secret
+# (TELEGRAM_BOT_TOKEN), jangan pernah ditaruh di file ini.
+# Env TELEGRAM_CHAT_ID (kalau di-set) akan menimpa nilai di sini.
+telegram:
+  chat_id: 6788518859
+
 # Aktifkan narasi via Claude API (opsional, Phase 6).
 narrative:
   enabled: false
