@@ -1,0 +1,60 @@
+name: Daily Markup Radar
+
+# EOD scan setelah market IDX tutup (~16:30 WIB).
+# Cron GitHub Actions pakai UTC: 10:00 UTC = 17:00 WIB (Senin–Jumat).
+on:
+  schedule:
+    - cron: "0 10 * * 1-5"
+  workflow_dispatch:        # bisa di-trigger manual dari tab Actions
+    inputs:
+      date:
+        description: "Tanggal scan (YYYY-MM-DD, kosong = hari ini)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run (jangan kirim Telegram)"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: daily-markup-radar
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily scan
+        env:
+          INVEZGO_API_KEY: ${{ secrets.INVEZGO_API_KEY }}
+          INVEZGO_BASE_URL: ${{ secrets.INVEZGO_BASE_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.date }}" ]; then ARGS="$ARGS --date ${{ inputs.date }}"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python scripts/run_daily.py $ARGS
+
+      # SQLite di runner bersifat ephemeral; simpan sebagai artifact untuk audit.
+      - name: Upload results DB
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: markup-radar-db
+          path: data/*.db
+          if-no-files-found: ignore
+          retention-days: 30
