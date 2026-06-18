@@ -1,0 +1,26 @@
+name: Test Telegram
+
+# Trigger manual dari tab Actions untuk memverifikasi bahwa GitHub runner
+# bisa mengirim ke Telegram pakai secret TELEGRAM_BOT_TOKEN (chat_id dari config).
+# Tidak butuh data Invezgo — mengirim pesan demo sintetis.
+on:
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send demo alert to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # chat_id diambil dari config/settings.yaml; override di sini bila perlu.
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/test_telegram.py
