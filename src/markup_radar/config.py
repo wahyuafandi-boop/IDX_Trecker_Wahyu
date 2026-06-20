@@ -20,6 +20,21 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SETTINGS = ROOT / "config" / "settings.yaml"
 
 
+def parse_codes(tokens: list[str]) -> list[str]:
+    """Normalisasi daftar kode saham dari argumen CLI (--codes).
+
+    Terima campuran pemisah koma/spasi, mis. ``["BBCA,BBRI", "BMRI"]`` atau
+    ``["bbca", "bbri"]``. Hasil: UPPERCASE, tanpa duplikat, urutan dipertahankan.
+    """
+    out: list[str] = []
+    for token in tokens:
+        for code in token.replace(",", " ").split():
+            code = code.upper()
+            if code and code not in out:
+                out.append(code)
+    return out
+
+
 @dataclass
 class Settings:
     """Konfigurasi engine yang sudah di-resolve (yaml + env)."""

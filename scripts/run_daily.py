@@ -5,6 +5,7 @@ Contoh:
     python scripts/run_daily.py                 # tanggal hari ini
     python scripts/run_daily.py --date 2026-06-16
     python scripts/run_daily.py --dry-run       # tanpa kirim Telegram
+    python scripts/run_daily.py --codes BBCA,BBRI   # override watchlist YAML
 
 Catatan: butuh INVEZGO_API_KEY di .env. Beberapa path endpoint Invezgo masih
 perlu diverifikasi (lihat scripts/verify_data.py & client.py TODO).
@@ -21,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from markup_radar.alert import format_alert, send_telegram
-from markup_radar.config import load_settings
+from markup_radar.config import load_settings, parse_codes
 from markup_radar.ingest import InvezgoClient
 from markup_radar.ingest.broker_client import (
     fetch_broker_daily_net,
@@ -86,9 +87,26 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Markup Radar — daily EOD scan")
     ap.add_argument("--date", default=dt.date.today().isoformat(), help="YYYY-MM-DD")
     ap.add_argument("--dry-run", action="store_true", help="jangan kirim Telegram")
+    ap.add_argument(
+        "--codes",
+        nargs="+",
+        metavar="CODE",
+        help="override watchlist untuk run ini, mis. --codes BBCA,BBRI atau "
+        "--codes BBCA BBRI. Kalau tidak diberikan, pakai watchlist di "
+        "config/settings.yaml.",
+    )
     args = ap.parse_args()
 
     cfg = load_settings()
+    if args.codes:
+        codes = parse_codes(args.codes)
+        if codes:
+            cfg.raw["watchlist"] = codes
+            print(f"[info] watchlist override (--codes): {', '.join(codes)}",
+                  file=sys.stderr)
+        else:
+            print("[WARN] --codes tidak berisi kode valid; "
+                  "fallback ke watchlist config.", file=sys.stderr)
     date = dt.date.fromisoformat(args.date)
     client = InvezgoClient(
         cfg.invezgo_api_key,
