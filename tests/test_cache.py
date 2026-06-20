@@ -47,15 +47,21 @@ class CountingClient:
         self._ohlcv = ohlcv
         self.calls = {"ohlc": 0, "done": 0, "broker": 0, "ihsg": 0}
 
-    def stock_chart(self, code, a, b):
-        # dipakai ohlc & ihsg; bedakan via code
-        key = "ihsg" if code in ("COMPOSITE", "IHSG") else "ohlc"
-        self.calls[key] += 1
+    def _ohlcv_rows(self):
         return [
             {"date": d.strftime("%Y-%m-%d"), "open": 1, "high": 2, "low": 0.5,
              "close": 1.5, "volume": 100}
             for d in self._ohlcv["date"]
         ]
+
+    def stock_chart(self, code, a, b):
+        self.calls["ohlc"] += 1
+        return self._ohlcv_rows()
+
+    def index_chart(self, code, a, b):
+        # IHSG/index — endpoint /analysis/chart/index/{code}
+        self.calls["ihsg"] += 1
+        return self._ohlcv_rows()
 
     def momentum_chart(self, code, date, **k):
         self.calls["done"] += 1
@@ -63,7 +69,13 @@ class CountingClient:
 
     def inventory_chart_stock(self, code, a, b, **k):
         self.calls["broker"] += 1
-        return [{"date": d.strftime("%Y-%m-%d"), "net": 5} for d in self._ohlcv["date"]]
+        # shape Invezgo: {broker:[{broker,data:[{date,value}]}]}, value kumulatif.
+        return {"broker": [
+            {"broker": "AA", "data": [
+                {"date": d.strftime("%Y-%m-%d"), "value": 5 * (i + 1)}
+                for i, d in enumerate(self._ohlcv["date"])
+            ]}
+        ]}
 
 
 def test_load_history_uses_cache_on_second_run(tmp_path):

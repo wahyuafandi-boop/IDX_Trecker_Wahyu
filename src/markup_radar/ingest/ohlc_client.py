@@ -39,4 +39,7 @@ def fetch_ohlcv(client: InvezgoClient, code: str, date_from: str, date_to: str) 
     if df.empty:
         return df
     df["date"] = pd.to_datetime(df["date"])
-    return df.sort_values("date").reset_index(drop=True)
+    # Invezgo kirim volume (dan kadang OHLC) sebagai STRING -> coerce ke angka.
+    for col in ("open", "high", "low", "close", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df.drop_duplicates("date").sort_values("date").reset_index(drop=True)

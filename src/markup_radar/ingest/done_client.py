@@ -20,21 +20,32 @@ def _pick(row: dict, *keys: str, default=None):
     return default
 
 
+def _f(x, default: float = 0.0) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
 def fetch_done_breakdown(client: InvezgoClient, code: str, date: str) -> dict[str, float]:
     """-> {done_offer_value, done_bid_value} untuk satu tanggal.
 
     done_offer = sisi BUY (agresor angkat offer)
     done_bid   = sisi SELL (agresor lego di bid)
+
+    Shape Invezgo (scope='value'): list time-series intraday
+    [{"time","value","buy","sell"}, ...] di mana `buy`/`sell` KUMULATIF
+    sepanjang hari -> total sehari = nilai kumulatif terakhir (= max).
     """
     raw = client.momentum_chart(code, date)
 
-    # Bentuk umum: ringkasan agregat, atau list per interval yang perlu dijumlah.
-    if isinstance(raw, list):
-        offer = sum(_pick(r, "buyLot", "BuyLot", "buyValue", "BuyVolume", default=0) or 0 for r in raw)
-        bid = sum(_pick(r, "sellLot", "SellLot", "sellValue", "SellVolume", default=0) or 0 for r in raw)
+    if isinstance(raw, list) and raw:
+        # buy/sell kumulatif & monoton naik -> ambil maksimum (= total akhir).
+        offer = max((_f(_pick(r, "buy", "buyValue", "BuyVolume", "buyLot")) for r in raw), default=0.0)
+        bid = max((_f(_pick(r, "sell", "sellValue", "SellVolume", "sellLot")) for r in raw), default=0.0)
     else:
         raw = raw or {}
-        offer = _pick(raw, "buyLot", "BuyLot", "buyValue", "BuyVolume", "buy", default=0) or 0
-        bid = _pick(raw, "sellLot", "SellLot", "sellValue", "SellVolume", "sell", default=0) or 0
+        offer = _f(_pick(raw, "buy", "buyValue", "BuyVolume", "buyLot", "BuyLot"))
+        bid = _f(_pick(raw, "sell", "sellValue", "SellVolume", "sellLot", "SellLot"))
 
-    return {"done_offer_value": float(offer), "done_bid_value": float(bid)}
+    return {"done_offer_value": offer, "done_bid_value": bid}

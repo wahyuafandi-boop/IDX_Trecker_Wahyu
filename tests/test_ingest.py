@@ -48,16 +48,40 @@ def test_rate_limiter_tracks_hits():
 
 
 # ---- Broker daily net (1 call) ----
-def test_broker_daily_net_sorted_chronologically():
-    inv = [
-        {"date": "2026-06-12", "buy": 30, "sell": 10},   # net +20
-        {"date": "2026-06-10", "buy": 5, "sell": 25},    # net -20
-        {"date": "2026-06-11", "net": 7},
-    ]
+def test_broker_daily_net_topn_cumulative_delta():
+    # Shape Invezgo: {broker:[{broker,data:[{date,value}]}]}, value = KUMULATIF.
+    inv = {
+        "broker": [
+            {"broker": "AA", "data": [
+                {"date": "2026-06-11", "value": 30},   # sengaja tak urut
+                {"date": "2026-06-10", "value": 10},
+                {"date": "2026-06-12", "value": 60},
+            ]},
+            {"broker": "BB", "data": [
+                {"date": "2026-06-10", "value": 5},
+                {"date": "2026-06-11", "value": 15},
+                {"date": "2026-06-12", "value": 20},
+            ]},
+        ]
+    }
     client = FakeClient(inventory=inv)
     out = fetch_broker_daily_net(client, "BBCA", "2026-06-10", "2026-06-12")
-    assert out == [-20.0, 7.0, 20.0]
+    # agregat kumulatif top-N per tgl = [15, 45, 80] -> delta harian:
+    assert out == [15.0, 30.0, 35.0]
     assert client.calls == 1  # hanya 1 API call
+
+
+def test_broker_daily_net_topn_excludes_distributors():
+    inv = {"broker": [
+        {"broker": "ACC", "data": [{"date": "2026-06-10", "value": 100},
+                                   {"date": "2026-06-11", "value": 200}]},
+        {"broker": "DIST", "data": [{"date": "2026-06-10", "value": -50},
+                                    {"date": "2026-06-11", "value": -300}]},
+    ]}
+    client = FakeClient(inventory=inv)
+    out = fetch_broker_daily_net(client, "X", "a", "b", top_n=1)
+    # hanya akumulator teratas (ACC): kumulatif [100, 200] -> [100, 100]
+    assert out == [100.0, 100.0]
 
 
 def test_broker_daily_net_empty_on_error():

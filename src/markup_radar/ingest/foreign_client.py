@@ -12,18 +12,37 @@ def _pick(row: dict, *keys: str, default=None):
     return default
 
 
+def _f(x, default: float = 0.0) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
 def fetch_foreign_map(client: InvezgoClient, date: str) -> dict[str, float]:
     """Tarik top/foreign SEKALI per run -> {code: foreign_net_value}.
 
     Dipanggil 1x untuk seluruh watchlist (bukan per saham) demi hemat kuota.
+    Shape Invezgo: {accum:[{code,value,...}], dist:[{code,value,...}]} dengan
+    `value` STRING magnitudo -> accum = net beli asing (+), dist = net jual (−).
     """
     raw = client.top_foreign(date)
-    rows = raw if isinstance(raw, list) else raw.get("items", [])
     out: dict[str, float] = {}
-    for r in rows:
-        rcode = str(_pick(r, "code", "symbol", "stock", default="")).upper()
-        if rcode:
-            out[rcode] = float(_pick(r, "netValue", "foreignNet", "net", default=0) or 0)
+
+    def _ingest(rows, sign: float) -> None:
+        for r in rows or []:
+            rcode = str(_pick(r, "code", "symbol", "stock", default="")).upper()
+            if rcode:
+                out[rcode] = sign * abs(_f(_pick(r, "value", "netValue", "foreignNet", "net")))
+
+    if isinstance(raw, dict):
+        _ingest(raw.get("accum"), +1.0)
+        _ingest(raw.get("dist"), -1.0)
+    elif isinstance(raw, list):  # fallback shape datar bertanda
+        for r in raw:
+            rcode = str(_pick(r, "code", "symbol", "stock", default="")).upper()
+            if rcode:
+                out[rcode] = _f(_pick(r, "netValue", "foreignNet", "net", "value"))
     return out
 
 

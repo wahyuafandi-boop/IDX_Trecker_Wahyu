@@ -11,18 +11,18 @@ CONFIRMED (terlihat eksplisit di source SDK):
   /analysis/order-book/{code}         -> order book / closing queue (S5)
   /analysis/inventory-chart/stock/{code}
   /analysis/top/foreign               -> foreign accumulation/distribution (S8)
-  /analysis/chart/stock/{indicator}/{code}
+  /analysis/chart/stock/{code}        -> OHLCV harian saham (S6, S7) (GetStockChart)
+  /analysis/chart/index/{code}        -> OHLCV harian index/IHSG (S9) (GetIndexChart)
+  /analysis/intraday-data/{code}      -> intraday real-time (mode live) (GetIntradayData)
   /usage/api
 
-NEEDS-VERIFY (nama method dikonfirmasi dari SDK, tapi path literal belum
-terlihat di excerpt; cek https://api.invezgo.com/documentation):
-  OHLCV harian  (GetStockChart)
-  intraday      (GetIntradayChart)
-  daftar saham  (GetStockList)
-  daftar index  (GetIndexList)
+NEEDS-VERIFY (method ada di SDK, tapi path literal belum dikonfirmasi):
+  daftar saham  (GetStockList)  -> stock_list()  # TODO(verify)
+  daftar index  (GetIndexList)  -> index_list()  # TODO(verify)
 
-Path yang belum terverifikasi ditandai `# TODO(verify)`.
-Jalankan `scripts/verify_data.py` untuk konfirmasi sebelum produksi.
+Catatan: path di atas dikonfirmasi dari source invezgo-go-sdk (analysis.go).
+Response SHAPE (nama field JSON) tiap endpoint tetap dicek pada call live
+pertama lewat `scripts/verify_data.py` sebelum produksi.
 """
 
 from __future__ import annotations
@@ -126,10 +126,13 @@ class InvezgoClient:
         date_from: str,
         date_to: str,
         *,
-        investor: str | None = None,
+        investor: str = "all",
         market: str | None = "RG",
     ) -> Any:
-        """Broker summary per saham (S3, S4). investor: 'F'/'D'/None."""
+        """Broker summary per saham (S3, S4).
+
+        `investor` WAJIB (server 422 bila kosong): 'all' | 'F' | 'D'.
+        """
         return self._get(
             f"/analysis/summary/stock/{code}",
             {"from": date_from, "to": date_to, "investor": investor, "market": market},
@@ -140,10 +143,14 @@ class InvezgoClient:
         code: str,
         date: str,
         *,
-        range_: str | None = None,
-        scope: str | None = None,
+        range_: int = 1,
+        scope: str = "value",
     ) -> Any:
-        """Buy/sell done — basis done-by-offer vs done-by-bid (S1, S2)."""
+        """Buy/sell done — basis done-by-offer vs done-by-bid (S1, S2).
+
+        Param WAJIB (server 422 bila kosong): `range` (number, hari) &
+        `scope` enum 'value' (rupiah) | 'volume' (lot).
+        """
         return self._get(
             f"/analysis/momentum-chart/{code}",
             {"date": date, "range": range_, "scope": scope},
@@ -158,11 +165,31 @@ class InvezgoClient:
         return self._get("/analysis/top/foreign", {"date": date})
 
     def inventory_chart_stock(
-        self, code: str, date_from: str, date_to: str, **params: Any
+        self,
+        code: str,
+        date_from: str,
+        date_to: str,
+        *,
+        scope: str = "value",
+        investor: str = "all",
+        market: str = "RG",
+        **params: Any,
     ) -> Any:
+        """Inventory chart per broker (S3). `scope`/`investor`/`market` WAJIB.
+
+        Response: {price:[OHLCV], broker:[{broker,name,data:[{date,value}]}]}
+        dengan `value` = net kumulatif per broker (negatif = distribusi).
+        """
         return self._get(
             f"/analysis/inventory-chart/stock/{code}",
-            {"from": date_from, "to": date_to, **params},
+            {
+                "from": date_from,
+                "to": date_to,
+                "scope": scope,
+                "investor": investor,
+                "market": market,
+                **params,
+            },
         )
 
     def indicator_chart(
@@ -180,15 +207,32 @@ class InvezgoClient:
     # Endpoints (NEEDS-VERIFY — konfirmasi path via /documentation)
     # ------------------------------------------------------------------ #
     def stock_chart(self, code: str, date_from: str, date_to: str) -> Any:
-        """OHLCV harian (S6, S7). TODO(verify): path literal."""
+        """OHLCV harian saham (S6, S7).
+
+        Path dikonfirmasi dari invezgo-go-sdk GetStockChart.
+        """
         return self._get(
-            f"/analysis/chart/stock/ohlc/{code}",  # TODO(verify)
+            f"/analysis/chart/stock/{code}",
+            {"from": date_from, "to": date_to},
+        )
+
+    def index_chart(self, code: str, date_from: str, date_to: str) -> Any:
+        """OHLCV harian index — IHSG/LQ45 dst (S9).
+
+        Path dikonfirmasi dari invezgo-go-sdk GetIndexChart. Kode IHSG
+        ('COMPOSITE') masih perlu dicek pada call live pertama.
+        """
+        return self._get(
+            f"/analysis/chart/index/{code}",
             {"from": date_from, "to": date_to},
         )
 
     def intraday_chart(self, code: str, market: str = "RG") -> Any:
-        """Intraday chart. TODO(verify): path literal."""
-        return self._get(f"/analysis/intraday-chart/{code}", {"market": market})  # TODO(verify)
+        """Intraday real-time O/H/L/C/volume (mode live).
+
+        Path dikonfirmasi dari invezgo-go-sdk GetIntradayData.
+        """
+        return self._get(f"/analysis/intraday-data/{code}", {"market": market})
 
     def stock_list(self) -> Any:
         """Daftar seluruh saham BEI. TODO(verify): path literal."""

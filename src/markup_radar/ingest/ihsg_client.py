@@ -6,7 +6,7 @@ import pandas as pd
 
 from markup_radar.ingest.client import InvezgoClient
 
-IHSG_CODE = "COMPOSITE"  # TODO(verify): kode index IHSG di Invezgo (mis. 'COMPOSITE'/'IHSG')
+IHSG_CODE = "COMPOSITE"  # TODO(verify): kode index IHSG di Invezgo (mis. 'COMPOSITE'/'IHSG'); endpoint = /analysis/chart/index/{code}
 
 
 def _pick(row: dict, *keys: str, default=None):
@@ -18,7 +18,7 @@ def _pick(row: dict, *keys: str, default=None):
 
 def fetch_ihsg(client: InvezgoClient, date_from: str, date_to: str) -> pd.DataFrame:
     """IHSG harian -> DataFrame[date, close] untuk hitung MA50 (S9)."""
-    raw = client.stock_chart(IHSG_CODE, date_from, date_to)
+    raw = client.index_chart(IHSG_CODE, date_from, date_to)
     rows = raw if isinstance(raw, list) else raw.get("items", raw.get("data", []))
 
     records = [
@@ -32,4 +32,6 @@ def fetch_ihsg(client: InvezgoClient, date_from: str, date_to: str) -> pd.DataFr
     if df.empty:
         return df
     df["date"] = pd.to_datetime(df["date"])
-    return df.sort_values("date").reset_index(drop=True)
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    # index chart kadang kirim baris duplikat per tanggal -> dedupe.
+    return df.drop_duplicates("date").sort_values("date").reset_index(drop=True)

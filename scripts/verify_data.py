@@ -56,8 +56,9 @@ def main() -> int:
     _show("S3/S4 broker summary (net buy/sell per broker)",
           lambda: client.broker_summary_stock(code, week_ago, date))
     _show("S5 order book (closing bid/offer queue)", lambda: client.order_book(code))
-    _show("S6/S7 stock chart OHLCV (TODO verify path)",
-          lambda: client.stock_chart(code, week_ago, date))
+    _show("S6/S7 stock chart OHLCV", lambda: client.stock_chart(code, week_ago, date))
+    _show("S9 IHSG index chart (cek kode 'COMPOSITE')",
+          lambda: client.index_chart("COMPOSITE", week_ago, date))
     _show("S8 top foreign", lambda: client.top_foreign(date))
     _show("API usage / quota", client.api_usage)
 
