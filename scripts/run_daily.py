@@ -28,7 +28,10 @@ from markup_radar.ingest.broker_client import (
     fetch_broker_daily_net,
     fetch_closing_queue,
 )
-from markup_radar.ingest.done_client import fetch_done_breakdown
+from markup_radar.ingest.done_client import (
+    fetch_done_breakdown,
+    latest_available_done_date,
+)
 from markup_radar.ingest.ihsg_client import fetch_ihsg
 from markup_radar.ingest.ohlc_client import fetch_ohlcv
 from markup_radar.narrative import generate_narrative
@@ -106,12 +109,24 @@ def main() -> int:
         else:
             print("[WARN] --codes tidak berisi kode valid; "
                   "fallback ke watchlist config.", file=sys.stderr)
-    date = dt.date.fromisoformat(args.date)
     client = InvezgoClient(
         cfg.invezgo_api_key,
         cfg.invezgo_base_url,
         rate_limit_per_min=cfg.rate_limit_per_min,
     )
+
+    # Resolusi tanggal scan: done (momentum-chart) telat ~1 hari bursa & kosong di
+    # libur/weekend. Pakai tanggal terakhir yang sudah ada data done agar MARKUP
+    # bisa terhitung (kalau hari ini belum siap, mundur). Aman utk swing 20-hari.
+    scan_date_str = args.date
+    if cfg.watchlist:
+        resolved = latest_available_done_date(client, cfg.watchlist[0], args.date)
+        if resolved != args.date:
+            print(f"[info] data done belum tersedia utk {args.date}; "
+                  f"pakai tanggal terakhir berdata: {resolved}", file=sys.stderr)
+            scan_date_str = resolved
+    date = dt.date.fromisoformat(scan_date_str)
+
     store = Store(cfg.db_path)
     narrative_cfg = cfg.narrative
     # Mirror persisten ke Google Sheets (histori numpuk lintas run GH Actions).
@@ -138,11 +153,11 @@ def main() -> int:
             print(f"[WARN] {code}: {exc}", file=sys.stderr)
             continue
 
-        store.save_result(args.date, code, state, conf, signals)
+        store.save_result(scan_date_str, code, state, conf, signals)
         print(f"{code:6s} {state:22s} conf={conf}")
 
         record = {
-            "date": args.date, "code": code, "state": state,
+            "date": scan_date_str, "code": code, "state": state,
             "confidence": conf, "signals": signals, "narrative": "",
         }
         if state in cfg.alert_states:
@@ -155,7 +170,7 @@ def main() -> int:
             actionable.append(record)
         scan_log.append(record)
 
-    msg = format_alert(args.date, actionable)
+    msg = format_alert(scan_date_str, actionable)
     print("\n" + msg)
 
     if not args.dry_run and actionable:

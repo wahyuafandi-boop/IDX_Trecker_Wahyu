@@ -14,7 +14,33 @@ done_bid (sell agresif) <- field `buy`. Sebelum fix ini semua state -> NEUTRAL.
 
 from __future__ import annotations
 
+import datetime as dt
+
 from markup_radar.ingest.client import InvezgoClient
+
+
+def latest_available_done_date(
+    client: InvezgoClient, code: str, date: str, *, max_back: int = 7
+) -> str:
+    """Tanggal terbaru (<= `date`) yang punya data momentum-chart (done).
+
+    momentum-chart sering TELAT ~1 hari bursa untuk tanggal terkini, dan kosong
+    di hari libur/akhir pekan. Tanpa ini, scan EOD hari-yang-sama dapat done
+    kosong (done_ratio=0.5) → MARKUP tak pernah trigger. Mundur per hari kalender
+    sampai ketemu data (hari libur/weekend otomatis terlewati karena momentum
+    juga kosong di situ), maksimal `max_back` langkah. Bila tak ketemu, kembalikan
+    `date` apa adanya (perilaku lama)."""
+    d = dt.date.fromisoformat(date)
+    for _ in range(max_back + 1):
+        ds = d.isoformat()
+        try:
+            raw = client.momentum_chart(code, ds)
+            if isinstance(raw, list) and raw:
+                return ds
+        except Exception:  # noqa: BLE001 — anggap tanggal ini tak berdata, mundur
+            pass
+        d -= dt.timedelta(days=1)
+    return date
 
 
 def _pick(row: dict, *keys: str, default=None):

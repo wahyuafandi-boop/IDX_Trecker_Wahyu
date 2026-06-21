@@ -9,7 +9,10 @@ from markup_radar.ingest.broker_client import (
     fetch_broker_daily_net_dated,
 )
 from markup_radar.ingest.client import _RateLimiter
-from markup_radar.ingest.done_client import fetch_done_breakdown
+from markup_radar.ingest.done_client import (
+    fetch_done_breakdown,
+    latest_available_done_date,
+)
 from markup_radar.ingest.foreign_client import fetch_foreign_map, foreign_net_for
 from markup_radar.ingest.ohlc_client import fetch_ohlcv
 
@@ -29,6 +32,36 @@ class FakeClient:
     def top_foreign(self, date):
         self.calls += 1
         return self._foreign
+
+
+# ---- Resolusi tanggal done (lag momentum-chart) ----
+class _DoneDateClient:
+    """Fake: momentum_chart non-empty hanya untuk tanggal yang 'punya data'."""
+
+    def __init__(self, have):
+        self.have = set(have)
+        self.asked = []
+
+    def momentum_chart(self, code, date, **kw):
+        self.asked.append(date)
+        return [{"buy": 1, "sell": 1}] if date in self.have else []
+
+
+def test_latest_done_date_steps_back_to_last_available():
+    # Diminta 2026-06-21 (Minggu); data done terakhir 2026-06-18 → mundur ke situ.
+    c = _DoneDateClient(["2026-06-18", "2026-06-17"])
+    assert latest_available_done_date(c, "DATA", "2026-06-21") == "2026-06-18"
+
+
+def test_latest_done_date_uses_requested_when_available():
+    c = _DoneDateClient(["2026-06-19"])
+    assert latest_available_done_date(c, "DATA", "2026-06-19") == "2026-06-19"
+
+
+def test_latest_done_date_falls_back_when_none_found():
+    c = _DoneDateClient([])
+    assert latest_available_done_date(c, "DATA", "2026-06-21", max_back=3) == "2026-06-21"
+    assert len(c.asked) == 4  # tanggal awal + 3 langkah mundur
 
 
 # ---- Rate limiter ----
