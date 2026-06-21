@@ -8,5 +8,9 @@ python-dotenv>=1.0
 # Optional: narrative generation
 anthropic>=0.40
 
+# Mirror hasil scan ke Google Sheets (persistensi histori + dashboard Phase 6)
+gspread>=6.0
+google-auth>=2.0
+
 # Dev / test
 pytest>=8.0

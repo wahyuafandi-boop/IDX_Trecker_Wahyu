@@ -34,7 +34,7 @@ from markup_radar.ingest.ohlc_client import fetch_ohlcv
 from markup_radar.narrative import generate_narrative
 from markup_radar.scoring import classify, confidence_markup_start
 from markup_radar.signals import StockData, compute_signals
-from markup_radar.store import Store
+from markup_radar.store import Store, build_sink
 
 
 def _date_range(end: dt.date, days_back: int) -> tuple[str, str]:
@@ -114,11 +114,17 @@ def main() -> int:
     )
     store = Store(cfg.db_path)
     narrative_cfg = cfg.narrative
+    # Mirror persisten ke Google Sheets (histori numpuk lintas run GH Actions).
+    # None bila sink mati (fitur off / tak ada spreadsheet_id / kredensial / lib).
+    sink = build_sink(cfg)
+    if sink is not None:
+        print("[info] mirror Google Sheets aktif.", file=sys.stderr)
 
     # Data market-wide: IHSG ditarik 1x per run, dipakai semua saham (hemat kuota).
     ihsg = fetch_ihsg(client, *_date_range(date, cfg.windows.get("ihsg_ma", 50) * 2))
     ihsg_close = ihsg["close"] if not ihsg.empty else None
 
+    scan_log: list[dict] = []   # SEMUA kode (termasuk NEUTRAL) untuk mirror Sheets
     actionable: list[dict] = []
     for code in cfg.watchlist:
         try:
@@ -135,15 +141,19 @@ def main() -> int:
         store.save_result(args.date, code, state, conf, signals)
         print(f"{code:6s} {state:22s} conf={conf}")
 
+        record = {
+            "date": args.date, "code": code, "state": state,
+            "confidence": conf, "signals": signals, "narrative": "",
+        }
         if state in cfg.alert_states:
-            item = {"code": code, "state": state, "confidence": conf, "signals": signals}
             if narrative_cfg.get("enabled"):
-                item["narrative"] = generate_narrative(
+                record["narrative"] = generate_narrative(
                     code, state, signals,
                     api_key=cfg.anthropic_api_key,
                     model=narrative_cfg.get("model", "claude-opus-4-8"),
                 )
-            actionable.append(item)
+            actionable.append(record)
+        scan_log.append(record)
 
     msg = format_alert(args.date, actionable)
     print("\n" + msg)
@@ -154,6 +164,18 @@ def main() -> int:
             print("\n[OK] alert terkirim ke Telegram.")
         except Exception as exc:  # noqa: BLE001
             print(f"\n[WARN] gagal kirim Telegram: {exc}", file=sys.stderr)
+
+    # Mirror histori ke Sheets — dilewati saat dry-run agar sheet tak terkotori
+    # baris uji. SQLite lokal tetap menyimpan (audit), Sheets = histori lintas run.
+    if sink is not None and scan_log:
+        if args.dry_run:
+            print("[info] dry-run: mirror Google Sheets dilewati.", file=sys.stderr)
+        else:
+            try:
+                n = sink.append_results(scan_log)
+                print(f"[OK] {n} baris di-mirror ke Google Sheets.")
+            except Exception as exc:  # noqa: BLE001 — sink opsional
+                print(f"[WARN] gagal mirror ke Sheets: {exc}", file=sys.stderr)
 
     store.close()
     return 0

@@ -81,6 +81,10 @@ class Settings:
     def narrative(self) -> dict[str, Any]:
         return dict(self.raw.get("narrative", {}))
 
+    @property
+    def sheets(self) -> dict[str, Any]:
+        return dict(self.raw.get("sheets", {}))
+
 
 def load_settings(path: str | Path = DEFAULT_SETTINGS) -> Settings:
     """Baca settings.yaml lalu overlay kredensial dari environment."""

@@ -75,3 +75,15 @@ telegram:
 narrative:
   enabled: true
   model: claude-opus-4-8
+
+# Mirror hasil scan ke Google Sheets (persistensi histori + dashboard Phase 6).
+# Runner GitHub Actions ephemeral → SQLite reset tiap run; Sheets jadi penampung
+# histori forward lintas run (kebutuhan #1: akumulasi data buat validasi edge).
+# spreadsheet_id BUKAN rahasia, boleh di sini (atau override env MARKUP_RADAR_SHEET_ID).
+# Kredensial service-account JSON WAJIB lewat env GOOGLE_SERVICE_ACCOUNT_JSON
+# (secret CI) atau GOOGLE_APPLICATION_CREDENTIALS (path file, lokal). Share
+# spreadsheet ke email service-account (Editor) dulu. Kosong/lib absen = sink mati.
+sheets:
+  enabled: true
+  spreadsheet_id: ""     # isi ID Google Sheet tujuan (dari URL .../d/<ID>/edit)
+  worksheet: signals
