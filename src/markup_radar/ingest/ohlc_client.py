@@ -10,6 +10,8 @@ tz-naive (tanpa pergeseran tanggal).
 
 from __future__ import annotations
 
+import sys
+
 import pandas as pd
 
 from markup_radar.ingest.client import InvezgoClient
@@ -82,6 +84,13 @@ def fetch_ohlcv(
             break  # tak ada progres mundur -> hindari loop tak berujung
         prev_min = cmin
         to = (cmin - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    else:
+        # Loop habis tanpa break = max_chunks tercapai sebelum mencapai date_from.
+        # Jangan truncate diam-diam; histori bisa tak lengkap di sisi awal.
+        if chunks:
+            print(f"[WARN] fetch_ohlcv {code}: rentang melebihi {max_chunks} chunk; "
+                  f"histori terpotong di {chunks[-1]['date'].min().date()} "
+                  f"(diminta dari {date_from}).", file=sys.stderr)
 
     if not chunks:
         return pd.DataFrame(columns=_COLS)

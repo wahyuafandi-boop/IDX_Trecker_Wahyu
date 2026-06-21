@@ -33,7 +33,10 @@ def fetch_foreign_map(client: InvezgoClient, date: str) -> dict[str, float]:
         for r in rows or []:
             rcode = str(_pick(r, "code", "symbol", "stock", default="")).upper()
             if rcode:
-                out[rcode] = sign * abs(_f(_pick(r, "value", "netValue", "foreignNet", "net")))
+                # AKUMULASI (bukan overwrite): kode yang muncul di accum DAN dist
+                # harus jadi net (+accum −dist), bukan ketimpa nilai yang belakangan.
+                val = sign * abs(_f(_pick(r, "value", "netValue", "foreignNet", "net")))
+                out[rcode] = out.get(rcode, 0.0) + val
 
     if isinstance(raw, dict):
         _ingest(raw.get("accum"), +1.0)

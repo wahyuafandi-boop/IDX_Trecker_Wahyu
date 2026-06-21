@@ -85,16 +85,24 @@ def fetch_broker_daily_net(
     per_broker.sort(key=lambda pts: pts[-1][1], reverse=True)
     top = per_broker[:top_n]
 
-    # agregat kumulatif top-N per tanggal.
-    agg: dict[str, float] = {}
-    for pts in top:
-        for date, val in pts:
-            agg[date] = agg.get(date, 0.0) + val
-
-    dates = sorted(agg)
-    cum = [agg[d] for d in dates]
-    if not cum:
+    # agregat kumulatif top-N per tanggal — FORWARD-FILL ke sumbu tanggal gabungan.
+    # Tanpa ini, broker yang bolong 1 tanggal bikin kumulatif agregat turun semu
+    # -> delta harian negatif palsu -> sinyal S3 (streak/turning) bisa flip.
+    # Hari tanpa baris = tidak ada perubahan posisi broker -> kumulatif terakhir
+    # dibawa terus (delta 0), bukan dianggap turun ke 0.
+    dates = sorted({d for pts in top for d, _ in pts})
+    if not dates:
         return []
+    agg: dict[str, float] = {d: 0.0 for d in dates}
+    for pts in top:
+        pdict = dict(pts)
+        last = 0.0
+        for d in dates:
+            if d in pdict:
+                last = pdict[d]
+            agg[d] += last
+
+    cum = [agg[d] for d in dates]
     # delta harian (hari pertama = kumulatif awal itu sendiri).
     return [cum[0]] + [cum[i] - cum[i - 1] for i in range(1, len(cum))]
 

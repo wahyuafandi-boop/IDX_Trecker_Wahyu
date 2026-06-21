@@ -88,6 +88,28 @@ def test_broker_daily_net_topn_excludes_distributors():
     assert out == [100.0, 100.0]
 
 
+def test_broker_daily_net_forward_fills_missing_broker_date():
+    # BB tak punya baris di 06-11 (tidak trading). Kumulatifnya harus DIBAWA TERUS
+    # (delta 0), bukan dianggap drop -> tanpa forward-fill muncul delta negatif palsu.
+    inv = {"broker": [
+        {"broker": "AA", "data": [
+            {"date": "2026-06-10", "value": 10},
+            {"date": "2026-06-11", "value": 20},
+            {"date": "2026-06-12", "value": 30},
+        ]},
+        {"broker": "BB", "data": [
+            {"date": "2026-06-10", "value": 100},
+            # 06-11 bolong
+            {"date": "2026-06-12", "value": 140},
+        ]},
+    ]}
+    client = FakeClient(inventory=inv)
+    out = fetch_broker_daily_net(client, "X", "2026-06-10", "2026-06-12")
+    # ff: agg = {10:110, 11:120, 12:170} -> deltas [110, 10, 50] (semua >=0).
+    # Tanpa ff (bug lama): agg[11]=20 -> delta -90 palsu.
+    assert out == [110.0, 10.0, 50.0]
+
+
 def test_broker_daily_net_empty_on_error():
     class Boom:
         def inventory_chart_stock(self, *a, **k):
@@ -169,6 +191,26 @@ def test_fetch_ohlcv_single_call_when_within_cap():
     assert df["date"].max() == pd.Timestamp("2026-06-19")
 
 
+def test_fetch_ohlcv_no_progress_guard_terminates():
+    # Server "macet": abaikan `to`, selalu balikin window 2026 yang sama -> tak
+    # pernah mundur lewat date_from. Guard no-progress harus hentikan, bukan loop.
+    class StuckClient:
+        def __init__(self):
+            self.calls = 0
+
+        def stock_chart(self, code, date_from, date_to):
+            self.calls += 1
+            ds = pd.bdate_range("2026-01-01", "2026-06-19")
+            return [{"date": d.strftime("%Y-%m-%dT00:00:00.000Z"),
+                     "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100} for d in ds]
+
+    c = StuckClient()
+    df = fetch_ohlcv(c, "X", "2025-01-01", "2026-06-19")  # minta dari 2025; server cuma 2026
+    assert c.calls <= 3                       # guard hentikan, tak sampai max_chunks
+    assert df["date"].min() == pd.Timestamp("2026-01-01")  # coverage parsial yang benar
+    assert df["date"].max() == pd.Timestamp("2026-06-19")
+
+
 def test_fetch_ohlcv_empty_when_no_data():
     class Empty:
         def stock_chart(self, *a, **k):
@@ -179,6 +221,16 @@ def test_fetch_ohlcv_empty_when_no_data():
 
 
 # ---- Foreign map (1 call, lookup lokal) ----
+def test_foreign_map_accumulates_dup_code():
+    # Kode di accum DAN dist -> net (+accum −dist), bukan ketimpa nilai belakangan.
+    class FC:
+        def top_foreign(self, date):
+            return {"accum": [{"code": "BBRI", "value": 1000}],
+                    "dist": [{"code": "BBRI", "value": 30}]}
+    fmap = fetch_foreign_map(FC(), "2026-06-19")
+    assert fmap["BBRI"] == 970.0   # 1000 - 30; bug lama: -30
+
+
 def test_foreign_map_and_lookup():
     rows = [
         {"code": "BBRI", "netValue": 1000},
