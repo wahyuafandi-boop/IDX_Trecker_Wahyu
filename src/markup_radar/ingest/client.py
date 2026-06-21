@@ -27,6 +27,7 @@ pertama lewat `scripts/verify_data.py` sebelum produksi.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
 from typing import Any
@@ -38,30 +39,49 @@ class InvezgoError(RuntimeError):
     """Error dari pemanggilan Invezgo API."""
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Header Retry-After (detik) -> float, atau None bila absen/tak valid.
+
+    Hanya menangani bentuk delta-detik (mis. '5'); format HTTP-date diabaikan.
+    """
+    if not value:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class _RateLimiter:
     """Throttle proaktif: maksimal `max_per_min` request dalam jendela 60 detik.
 
     Mencegah kena HTTP 429 saat scan universe besar (mis. LQ45). Plan Developer
-    Invezgo membatasi 250-500 req/menit tergantung tier.
+    Invezgo membatasi 250-500 req/menit tergantung tier. Thread-safe (lock) agar
+    aman bila client dipakai dari beberapa thread.
     """
 
     def __init__(self, max_per_min: int) -> None:
         self.max_per_min = max_per_min
         self._hits: deque[float] = deque()
+        self._lock = threading.Lock()
 
     def acquire(self) -> None:
         if self.max_per_min <= 0:
             return
-        now = time.monotonic()
-        # buang timestamp yang sudah > 60 detik.
-        while self._hits and now - self._hits[0] >= 60.0:
-            self._hits.popleft()
-        if len(self._hits) >= self.max_per_min:
-            sleep_for = 60.0 - (now - self._hits[0])
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                # buang timestamp yang sudah > 60 detik.
+                while self._hits and now - self._hits[0] >= 60.0:
+                    self._hits.popleft()
+                if len(self._hits) < self.max_per_min:
+                    # catat `now` yang SAMA dipakai eviksi (bukan re-sample).
+                    self._hits.append(now)
+                    return
+                sleep_for = 60.0 - (now - self._hits[0])
+            # sleep DI LUAR lock supaya thread lain tetap bisa berhitung.
             if sleep_for > 0:
                 time.sleep(sleep_for)
-            return self.acquire()
-        self._hits.append(time.monotonic())
 
 
 class InvezgoClient:
@@ -99,11 +119,13 @@ class InvezgoClient:
         params = {k: v for k, v in (params or {}).items() if v is not None}
 
         last_exc: Exception | None = None
+        retry_after: float | None = None
         for attempt in range(self.max_retries):
             try:
                 self._limiter.acquire()
                 resp = self.session.get(url, params=params, timeout=self.timeout)
-                if resp.status_code == 429:  # rate limit -> backoff
+                if resp.status_code == 429:  # rate limit -> hormati Retry-After
+                    retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
                     raise InvezgoError("rate limited (429)")
                 resp.raise_for_status()
                 payload = resp.json()
@@ -114,7 +136,10 @@ class InvezgoClient:
             except (requests.RequestException, InvezgoError) as exc:
                 last_exc = exc
                 if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                    # Retry-After (jika server kirim) menang atas backoff; cap 60s.
+                    backoff = retry_after if retry_after is not None else 2 ** attempt
+                    time.sleep(min(backoff, 60.0))  # 1s, 2s, 4s default
+                    retry_after = None
         raise InvezgoError(f"GET {path} gagal setelah {self.max_retries}x: {last_exc}")
 
     # ------------------------------------------------------------------ #

@@ -54,6 +54,42 @@ def test_rate_limiter_tracks_hits():
     assert len(rl._hits) == 5
 
 
+def test_get_honors_retry_after_on_429(monkeypatch):
+    # 429 dgn Retry-After: sleep selama header (5s), bukan backoff 2**0=1s, lalu retry sukses.
+    import markup_radar.ingest.client as cl
+
+    slept: list[float] = []
+    monkeypatch.setattr(cl.time, "sleep", lambda s: slept.append(s))
+
+    class Resp:
+        def __init__(self, status, headers=None, payload=None):
+            self.status_code = status
+            self.headers = headers or {}
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise cl.requests.HTTPError(f"HTTP {self.status_code}")
+
+    class Sess:
+        def __init__(self):
+            self.headers = {}
+            self.n = 0
+
+        def get(self, url, params=None, timeout=None):
+            self.n += 1
+            if self.n == 1:
+                return Resp(429, headers={"Retry-After": "5"})
+            return Resp(200, payload={"data": {"ok": True}})
+
+    c = cl.InvezgoClient("key", session=Sess(), rate_limit_per_min=0)
+    assert c._get("/x") == {"ok": True}
+    assert slept == [5.0]   # hormati Retry-After, bukan 2**0
+
+
 # ---- Broker daily net (1 call) ----
 def test_broker_daily_net_topn_cumulative_delta():
     # Shape Invezgo: {broker:[{broker,data:[{date,value}]}]}, value = KUMULATIF.

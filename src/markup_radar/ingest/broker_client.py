@@ -104,7 +104,10 @@ def fetch_broker_daily_net_dated(
             agg[d] += last
 
     cum = [agg[d] for d in dates]
-    # delta harian (hari pertama = kumulatif awal itu sendiri).
+    # delta harian; cum[0] = net hari pertama itu sendiri. Diverifikasi 2026-06-21:
+    # kumulatif inventory-chart RESET di `from` (nilai hari pertama seukuran delta
+    # harian, bukan posisi triliunan), jadi cum[0] adalah net pembuka yang valid —
+    # bukan posisi lama yang bocor (temuan review #5 -> refuted oleh data).
     deltas = [cum[0]] + [cum[i] - cum[i - 1] for i in range(1, len(cum))]
     return list(zip(dates, deltas))
 
