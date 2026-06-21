@@ -29,7 +29,12 @@ class HistoricalDataset:
             df = getattr(self, name)
             if isinstance(df, pd.DataFrame) and not df.empty and "date" in df:
                 df = df.copy()
-                df["date"] = pd.to_datetime(df["date"])
+                # Normalisasi ke tz-naive seragam: di path --no-cache OHLCV dari
+                # fetch_ohlcv bisa tz-aware (datetime64[us, UTC]) sedangkan done
+                # dirakit dari string "YYYY-MM-DD" (tz-naive). Tanpa strip tz,
+                # _lookup (date == date) tak pernah match → done_ratio degrade 0.5.
+                # Path cache aman (date string) & tetap tz-naive setelah ini.
+                df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
                 setattr(self, name, df.sort_values("date").reset_index(drop=True))
 
     @property

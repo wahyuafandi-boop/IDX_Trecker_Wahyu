@@ -74,6 +74,45 @@ def test_tune_returns_grid():
     assert "hit_rate" in grid.columns
 
 
+def test_replay_matches_tz_aware_ohlcv_vs_naive_done():
+    """Regresi path --no-cache: OHLCV dari fetch_ohlcv bisa tz-aware
+    (datetime64[*, UTC]) sedangkan done dirakit dari string "YYYY-MM-DD"
+    (tz-naive). Sebelum normalisasi tz, _lookup (date == date) tak pernah match
+    → done_ratio degrade senyap ke 0.5. Setelah fix, lookup benar.
+    """
+    dates = pd.bdate_range("2025-01-01", periods=40)
+    rows = []
+    for i, d in enumerate(dates):
+        if i < MARKUP_IDX:
+            rows.append({"date": d, "open": 100, "high": 101, "low": 99, "close": 100, "volume": 100})
+        elif i == MARKUP_IDX:
+            rows.append({"date": d, "open": 100, "high": 110, "low": 100, "close": 109, "volume": 300})
+        else:
+            base = 109 + (i - MARKUP_IDX) * 2
+            rows.append({"date": d, "open": base, "high": base + 3, "low": base - 1, "close": base + 2, "volume": 200})
+    ohlcv = pd.DataFrame(rows)
+    # Tiru fetch_ohlcv pada API live: kolom date tz-aware UTC.
+    ohlcv["date"] = pd.to_datetime(ohlcv["date"]).dt.tz_localize("UTC")
+    assert ohlcv["date"].dt.tz is not None  # tz-aware sebelum masuk dataset
+
+    # Tiru fresh_rows (cache miss): done memakai date string -> tz-naive.
+    done = pd.DataFrame([{
+        "date": dates[MARKUP_IDX].strftime("%Y-%m-%d"),
+        "done_offer_value": 80,
+        "done_bid_value": 20,
+    }])
+
+    ds = HistoricalDataset(code="TEST", ohlcv=ohlcv, done=done)
+    # __post_init__ harus menyeragamkan kedua sisi jadi tz-naive.
+    assert ds.ohlcv["date"].dt.tz is None
+    assert ds.done["date"].dt.tz is None
+
+    res = replay(ds, THRESHOLDS, WINDOWS, horizon=5, warmup=20)
+    markup_day = res[res["date"] == pd.Timestamp(dates[MARKUP_IDX])]
+    assert not markup_day.empty
+    assert markup_day.iloc[0]["done_ratio"] == 0.8   # ter-lookup benar, bukan 0.5 degrade
+
+
 def test_replay_too_short_returns_empty():
     short = HistoricalDataset(
         code="X",
