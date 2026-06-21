@@ -26,12 +26,15 @@ api:
   rate_limit_per_min: 250
 
 # Threshold sinyal (lihat spec §3 & §4).
+# Di-tune 2026-06-21 (profil "P2") via backtest 5 saham watchlist setelah fix
+# arah done-ratio: done_ratio_markup 0.60->0.55, rvol_spike 2.0->1.5. Hasil pool
+# n=170: avg fwd_max +9.0% vs baseline +4.75%. Lihat scripts/backtest.py.
 thresholds:
   done_ratio_buyer: 0.55      # S1: > buyer control
   done_ratio_seller: 0.45     # S1: < seller control
-  done_ratio_markup: 0.60     # gate MARKUP_START
+  done_ratio_markup: 0.55     # gate MARKUP_START (tuned P2, was 0.60)
   done_ratio_distribution: 0.40
-  rvol_spike: 2.0             # S6
+  rvol_spike: 1.5            # S6 (tuned P2, was 2.0; big-cap jarang 2x)
   close_in_range_strong: 0.60 # S7
   queue_imbalance_demand: 1.0 # S5
   absorption_min_rvol: 1.5    # S2: butuh volume "tinggi"

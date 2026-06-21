@@ -26,16 +26,17 @@ def classify(signals: dict, thresholds: dict | None = None) -> str:
     if not s or s.get("insufficient_data"):
         return "INSUFFICIENT_DATA"
 
-    ihsg_ok = s.get("ihsg_above_ma50", False)
-
     # MARKUP_START: buyer ambil alih + konfirmasi volume + close kuat
-    #               + broker masih akumulasi + market suportif.
+    #               + broker masih akumulasi.
+    # CATATAN: filter market IHSG>MA50 TIDAK lagi veto keras di sini — dipindah ke
+    # confidence score (bobot `ihsg`) agar engine tak bisu saat IHSG sedang <MA50.
+    # Validasi 2026-06-21: dengan veto IHSG, 0 sinyal di 5 saham; tanpa veto,
+    # 10 sinyal, avg fwd_max +9.0%. Market lemah menekan confidence, bukan memveto.
     if (
         s["done_ratio"] > t["done_ratio_markup"]
         and s["rvol"] >= t["rvol_spike"]
         and s["close_in_range"] > t["close_in_range_strong"]
         and s["broker_net_buy_streak"] >= 1
-        and ihsg_ok
     ):
         return "MARKUP_START"
 

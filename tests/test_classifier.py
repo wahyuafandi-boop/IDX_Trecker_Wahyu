@@ -28,10 +28,15 @@ def test_markup_start():
     assert classify(s) == "MARKUP_START"
 
 
-def test_markup_blocked_when_ihsg_bearish():
-    s = _base(done_ratio=0.68, rvol=2.3, close_in_range=0.8,
-              broker_net_buy_streak=3, ihsg_above_ma50=False)
-    assert classify(s) != "MARKUP_START"
+def test_markup_not_vetoed_by_bearish_ihsg_but_lower_confidence():
+    # IHSG bukan lagi veto keras (tuned 2026-06-21) — sinyal tetap MARKUP_START,
+    # tapi market lemah menekan confidence (bobot `ihsg`), bukan memblokir.
+    strong = dict(done_ratio=0.68, rvol=2.3, close_in_range=0.8, broker_net_buy_streak=3)
+    bull = _base(**strong, ihsg_above_ma50=True)
+    bear = _base(**strong, ihsg_above_ma50=False)
+    assert classify(bear) == "MARKUP_START"
+    assert classify(bull) == "MARKUP_START"
+    assert confidence_markup_start(bear) < confidence_markup_start(bull)
 
 
 def test_accumulation_via_absorption():

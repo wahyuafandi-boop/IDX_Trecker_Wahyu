@@ -4,6 +4,7 @@ import time
 
 from markup_radar.ingest.broker_client import fetch_broker_daily_net
 from markup_radar.ingest.client import _RateLimiter
+from markup_radar.ingest.done_client import fetch_done_breakdown
 from markup_radar.ingest.foreign_client import fetch_foreign_map, foreign_net_for
 
 
@@ -90,6 +91,37 @@ def test_broker_daily_net_empty_on_error():
             raise RuntimeError("nope")
 
     assert fetch_broker_daily_net(Boom(), "X", "a", "b") == []
+
+
+# ---- Done breakdown (momentum-chart) — arah SWAP ----
+class DoneClient:
+    """Stub: balikan momentum-chart yang sudah disetel."""
+
+    def __init__(self, payload):
+        self._payload = payload
+
+    def momentum_chart(self, code, date, **kw):
+        return self._payload
+
+
+def test_done_breakdown_swaps_buy_sell_direction():
+    # buy/sell KUMULATIF; field Invezgo `sell` = BUY agresif (done-at-offer).
+    payload = [
+        {"time": "09:00", "buy": 10, "sell": 40},
+        {"time": "15:00", "buy": 30, "sell": 90},  # kumulatif terakhir = max
+    ]
+    out = fetch_done_breakdown(DoneClient(payload), "BBRI", "2026-06-19")
+    # done_offer (buy agresif) <- field `sell`; done_bid (sell agresif) <- field `buy`.
+    assert out["done_offer_value"] == 90.0
+    assert out["done_bid_value"] == 30.0
+    # done_ratio buyer-control => offer/(offer+bid) > 0.5 saat `sell` dominan.
+    assert out["done_offer_value"] / sum(out.values()) > 0.5
+
+
+def test_done_breakdown_dict_shape_swapped():
+    out = fetch_done_breakdown(DoneClient({"buy": 5, "sell": 12}), "X", "d")
+    assert out["done_offer_value"] == 12.0  # <- `sell`
+    assert out["done_bid_value"] == 5.0     # <- `buy`
 
 
 # ---- Foreign map (1 call, lookup lokal) ----
