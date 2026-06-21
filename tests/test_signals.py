@@ -53,6 +53,20 @@ def test_queue_imbalance_demand():
     assert price_volume.queue_imbalance(200, 100) == 2.0
 
 
+def test_queue_verdict_labels():
+    # demand default 1.0, neutral_low 0.8
+    assert price_volume.queue_verdict(1.5) == "DEMAND_DOMINAN"
+    assert price_volume.queue_verdict(0.9) == "SEIMBANG"
+    assert price_volume.queue_verdict(0.5) == "SUPPLY_DOMINAN"
+    assert price_volume.queue_verdict(0.0) == "NO_DATA"
+
+
+def test_queue_verdict_respects_demand_threshold():
+    # demand 1.2: imbalance 1.1 belum cukup dominan -> SEIMBANG.
+    assert price_volume.queue_verdict(1.1, demand=1.2) == "SEIMBANG"
+    assert price_volume.queue_verdict(1.25, demand=1.2) == "DEMAND_DOMINAN"
+
+
 # ---- S6 RVOL ----
 def test_rvol_spike():
     vol = pd.Series([100] * 20 + [200])  # hari ini 2x MA20

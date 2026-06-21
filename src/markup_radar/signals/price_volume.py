@@ -36,6 +36,25 @@ def queue_imbalance(bid_volume: float, offer_volume: float) -> float:
     return float(bid_volume / offer_volume)
 
 
+def queue_verdict(imbalance: float, demand: float = 1.0, neutral_low: float = 0.8) -> str:
+    """Label interpretasi S5 untuk live watch (tape-reading bid/offer).
+
+    - imbalance >= demand    -> "DEMAND_DOMINAN" (antri beli dominan = konfirmasi
+                                bandar mulai markup)
+    - imbalance <  neutral_low -> "SUPPLY_DOMINAN" (antri jual dominan = ditahan/
+                                distribusi)
+    - di antaranya           -> "SEIMBANG" (belum jelas, masih dikumpulkan)
+    - <= 0                   -> "NO_DATA"
+    """
+    if imbalance <= 0:
+        return "NO_DATA"
+    if imbalance >= demand:
+        return "DEMAND_DOMINAN"
+    if imbalance < neutral_low:
+        return "SUPPLY_DOMINAN"
+    return "SEIMBANG"
+
+
 def price_change(prev_close: float, close: float) -> float:
     """Perubahan harga absolut (untuk absorption flag S2)."""
     return float(close - prev_close)
