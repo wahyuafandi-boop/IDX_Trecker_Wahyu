@@ -6,13 +6,15 @@ import pandas as pd
 
 from markup_radar.backtest.engine import replay
 
-# Definisi "benar" per state:
-#   MARKUP_START         -> markup terjadi: fwd_max >= target_up
-#   DISTRIBUTION_WARNING -> harga jatuh:    fwd_min <= -target_down
-#   ACCUMULATION_ONGOING -> tidak breakdown: fwd_min > -target_down
+# Definisi "benar" per state. Pakai fwd_CLOSE (return ke-hold) bukan fwd_max
+# (spike intraday yang menyesatkan — lihat catatan 2026-06-21: tuning ke fwd_max
+# bikin edge semu; fwd_close realistis menunjukkan edge baru muncul di 10-20d):
+#   MARKUP_START         -> markup ke-hold:  fwd_close >= target_up
+#   DISTRIBUTION_WARNING -> harga jatuh:      fwd_close <= -target_down
+#   ACCUMULATION_ONGOING -> tidak breakdown:  fwd_min > -target_down (survival)
 _HIT = {
-    "MARKUP_START": lambda r, up, dn: r["fwd_max"] >= up,
-    "DISTRIBUTION_WARNING": lambda r, up, dn: r["fwd_min"] <= -dn,
+    "MARKUP_START": lambda r, up, dn: r["fwd_close"] >= up,
+    "DISTRIBUTION_WARNING": lambda r, up, dn: r["fwd_close"] <= -dn,
     "ACCUMULATION_ONGOING": lambda r, up, dn: r["fwd_min"] > -dn,
 }
 

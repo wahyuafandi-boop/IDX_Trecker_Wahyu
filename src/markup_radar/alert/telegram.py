@@ -40,6 +40,9 @@ def format_alert(date: str, items: list[dict]) -> str:
         )
         if it.get("narrative"):
             lines.append(f"   <i>{html.escape(str(it['narrative']))}</i>")
+    lines.append("")
+    lines.append("<i>Setup swing 2–4 minggu (horizon 10–20 hari), bukan entry "
+                 "intraday. Konfirmasi & kelola risiko sendiri.</i>")
     return "\n".join(lines)
 
 

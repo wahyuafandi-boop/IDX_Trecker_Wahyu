@@ -32,7 +32,8 @@ def main() -> int:
     ap.add_argument("--from", dest="date_from", required=True, help="YYYY-MM-DD")
     ap.add_argument("--to", dest="date_to", required=True, help="YYYY-MM-DD")
     ap.add_argument("--code", help="batasi ke 1 saham (default: seluruh watchlist)")
-    ap.add_argument("--horizon", type=int, default=5, help="hari forward return")
+    ap.add_argument("--horizon", type=int, default=20, help="hari forward return "
+                    "(default 20 = swing 2-4 minggu; edge MARKUP_START muncul di 10-20d, bukan 5d)")
     ap.add_argument("--target-up", type=float, default=0.05, help="ambang markup sukses")
     ap.add_argument("--target-down", type=float, default=0.05, help="ambang distribusi sukses")
     ap.add_argument("--tune", action="store_true", help="grid-search done_ratio_markup")
