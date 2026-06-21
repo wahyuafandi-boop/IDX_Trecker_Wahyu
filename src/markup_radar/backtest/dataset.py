@@ -63,7 +63,7 @@ def load_history(
 
     Field done/broker bergantung shape yang masih TODO(verify).
     """
-    from markup_radar.ingest.broker_client import fetch_broker_daily_net
+    from markup_radar.ingest.broker_client import fetch_broker_daily_net_dated
     from markup_radar.ingest.done_client import fetch_done_breakdown
     from markup_radar.ingest.ihsg_client import fetch_ihsg
     from markup_radar.ingest.ohlc_client import fetch_ohlcv
@@ -82,12 +82,14 @@ def load_history(
         if cache:
             cache.put_ihsg(ihsg)
 
-    # --- Broker daily net (1 call) ---
+    # --- Broker daily net (1 call) — join BY-DATE pakai tanggal asli broker.
+    # Hindari align positional `ohlcv["date"][-len(net):]` yang rapuh: date-set
+    # broker bisa beda dari OHLCV (ValueError saat lebih panjang / mislabel hari).
     broker_df = cache.get_broker_net(code, date_from, date_to) if cache else pd.DataFrame()
     if broker_df.empty:
-        net = fetch_broker_daily_net(client, code, date_from, date_to)
-        if net and not ohlcv.empty:
-            broker_df = pd.DataFrame({"date": list(ohlcv["date"])[-len(net):], "net": net})
+        dated = fetch_broker_daily_net_dated(client, code, date_from, date_to)
+        if dated:
+            broker_df = pd.DataFrame(dated, columns=["date", "net"])
             if cache:
                 cache.put_broker_net(code, broker_df)
 

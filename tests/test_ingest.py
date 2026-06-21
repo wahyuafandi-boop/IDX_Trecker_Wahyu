@@ -4,7 +4,10 @@ import time
 
 import pandas as pd
 
-from markup_radar.ingest.broker_client import fetch_broker_daily_net
+from markup_radar.ingest.broker_client import (
+    fetch_broker_daily_net,
+    fetch_broker_daily_net_dated,
+)
 from markup_radar.ingest.client import _RateLimiter
 from markup_radar.ingest.done_client import fetch_done_breakdown
 from markup_radar.ingest.foreign_client import fetch_foreign_map, foreign_net_for
@@ -86,6 +89,26 @@ def test_broker_daily_net_topn_excludes_distributors():
     out = fetch_broker_daily_net(client, "X", "a", "b", top_n=1)
     # hanya akumulator teratas (ACC): kumulatif [100, 200] -> [100, 100]
     assert out == [100.0, 100.0]
+
+
+def test_broker_daily_net_dated_returns_date_net_pairs():
+    # Versi dated: (date, net) pakai tanggal ASLI broker -> caller join by-date.
+    inv = {"broker": [
+        {"broker": "AA", "data": [
+            {"date": "2026-06-10", "value": 10},
+            {"date": "2026-06-11", "value": 30},
+            {"date": "2026-06-12", "value": 60},
+        ]},
+        {"broker": "BB", "data": [
+            {"date": "2026-06-10", "value": 5},
+            {"date": "2026-06-11", "value": 15},
+            {"date": "2026-06-12", "value": 20},
+        ]},
+    ]}
+    out = fetch_broker_daily_net_dated(FakeClient(inventory=inv), "BBCA", "a", "b")
+    assert out == [("2026-06-10", 15.0), ("2026-06-11", 30.0), ("2026-06-12", 35.0)]
+    # wrapper list konsisten dgn versi dated (cuma nilai).
+    assert fetch_broker_daily_net(FakeClient(inventory=inv), "BBCA", "a", "b") == [15.0, 30.0, 35.0]
 
 
 def test_broker_daily_net_forward_fills_missing_broker_date():

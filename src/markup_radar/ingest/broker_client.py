@@ -50,18 +50,19 @@ def fetch_broker_summary(
     return pd.DataFrame.from_records(records)
 
 
-def fetch_broker_daily_net(
+def fetch_broker_daily_net_dated(
     client: InvezgoClient, code: str, date_from: str, date_to: str, *, top_n: int = 5
-) -> list[float]:
-    """Net broker besar per hari (kronologis) untuk S3 streak — 1 API call.
+) -> list[tuple[str, float]]:
+    """Net broker besar per hari sebagai (date, net) kronologis — 1 API call.
 
     Pakai inventory-chart. Shape Invezgo:
         {price:[...], broker:[{broker, name, data:[{date, value}]}]}
     `value` = net KUMULATIF per broker (negatif = distribusi). Langkah:
       1. ambil top-N broker akumulator (nilai kumulatif akhir terbesar),
-      2. jumlahkan kumulatif top-N per tanggal,
+      2. jumlahkan kumulatif top-N per tanggal (forward-fill broker yg bolong),
       3. delta antar-hari = net harian (positif = akumulasi).
-    Return [] bila data tak tersedia (streak=0).
+    Return tanggal asli broker agar caller bisa join by-date (bukan align
+    positional ke OHLCV yang rapuh). Return [] bila data tak tersedia.
     """
     try:
         raw = client.inventory_chart_stock(code, date_from, date_to)
@@ -104,7 +105,20 @@ def fetch_broker_daily_net(
 
     cum = [agg[d] for d in dates]
     # delta harian (hari pertama = kumulatif awal itu sendiri).
-    return [cum[0]] + [cum[i] - cum[i - 1] for i in range(1, len(cum))]
+    deltas = [cum[0]] + [cum[i] - cum[i - 1] for i in range(1, len(cum))]
+    return list(zip(dates, deltas))
+
+
+def fetch_broker_daily_net(
+    client: InvezgoClient, code: str, date_from: str, date_to: str, *, top_n: int = 5
+) -> list[float]:
+    """Net broker besar per hari (list nilai kronologis) untuk S3 streak.
+
+    Thin wrapper di atas fetch_broker_daily_net_dated; dipakai run_daily yang
+    cuma butuh urutan net (streak/turning tak perlu tanggal). Backtest pakai
+    versi *_dated agar bisa join by-date.
+    """
+    return [net for _, net in fetch_broker_daily_net_dated(client, code, date_from, date_to, top_n=top_n)]
 
 
 def fetch_closing_queue(client: InvezgoClient, code: str) -> dict[str, float]:
