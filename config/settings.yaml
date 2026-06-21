@@ -3,12 +3,16 @@
 
 # Universe saham yang di-scan tiap hari (EOD).
 # Bisa diganti dengan LQ45 / IDX30 / watchlist manual.
+# CATATAN: threshold di bawah di-tune pada big-cap (window bearish, edge lemah).
+# Watchlist small-cap ini lebih volatil (RVOL gampang spike, antrian tipis &
+# mudah di-mainkan) → sinyal cenderung lebih banyak/bising. Pakai sebagai
+# pengamatan forward (size kecil) sampai data live cukup untuk tune ulang.
 watchlist:
-  - BBCA
-  - BBRI
-  - BMRI
-  - TLKM
-  - ASII
+  - DATA
+  - JARR
+  - VERN
+  - ATAP
+  - ESIP
 
 # Window perhitungan rolling.
 windows:
