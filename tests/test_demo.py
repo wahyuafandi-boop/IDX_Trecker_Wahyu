@@ -14,7 +14,9 @@ def cfg():
 @pytest.mark.parametrize(
     "kind,expected",
     [
-        ("markup", "MARKUP_START"),
+        # Snapshot markup sengaja punya antrian beli menumpuk (bid 200 vs offer
+        # 100 → queue 2.0 ≥ demand), jadi naik ke tier konfirmasi MARKUP_CONFIRMED.
+        ("markup", "MARKUP_CONFIRMED"),
         ("accumulation", "ACCUMULATION_ONGOING"),
         ("distribution", "DISTRIBUTION_WARNING"),
         ("neutral", "NEUTRAL"),

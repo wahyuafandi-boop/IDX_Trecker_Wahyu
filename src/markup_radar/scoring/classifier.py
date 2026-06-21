@@ -1,7 +1,8 @@
 """Rule-based classification (spec §4).
 
-Output salah satu dari lima state:
-  MARKUP_START, ACCUMULATION_ONGOING, DISTRIBUTION_WARNING, NEUTRAL, INSUFFICIENT_DATA
+Output salah satu dari enam state:
+  MARKUP_CONFIRMED, MARKUP_START, ACCUMULATION_ONGOING, DISTRIBUTION_WARNING,
+  NEUTRAL, INSUFFICIENT_DATA
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ _DEFAULTS = {
     "done_ratio_distribution": 0.40,
     "rvol_spike": 2.0,
     "close_in_range_strong": 0.60,
+    "queue_imbalance_demand": 1.0,
     "broker_net_buy_streak_min": 3,
 }
 
@@ -26,18 +28,26 @@ def classify(signals: dict, thresholds: dict | None = None) -> str:
     if not s or s.get("insufficient_data"):
         return "INSUFFICIENT_DATA"
 
-    # MARKUP_START: buyer ambil alih + konfirmasi volume + close kuat
-    #               + broker masih akumulasi.
+    # MARKUP: buyer ambil alih + konfirmasi volume + close kuat + broker masih
+    #         akumulasi. Gate dasar ini sama untuk dua tier di bawah.
     # CATATAN: filter market IHSG>MA50 TIDAK lagi veto keras di sini — dipindah ke
     # confidence score (bobot `ihsg`) agar engine tak bisu saat IHSG sedang <MA50.
     # Validasi 2026-06-21: dengan veto IHSG, 0 sinyal di 5 saham; tanpa veto,
     # 10 sinyal, avg fwd_max +9.0%. Market lemah menekan confidence, bukan memveto.
-    if (
+    base_markup = (
         s["done_ratio"] > t["done_ratio_markup"]
         and s["rvol"] >= t["rvol_spike"]
         and s["close_in_range"] > t["close_in_range_strong"]
         and s["broker_net_buy_streak"] >= 1
-    ):
+    )
+    if base_markup:
+        # MARKUP_CONFIRMED: gate dasar + antrian beli menumpuk di close (S5
+        # bid/offer >= demand) → tesis "pengumpulan bandar selesai, siap markup".
+        # queue_imbalance hanya tersedia LIVE (order book tidak historis); di
+        # backtest S5=0 < demand sehingga CONFIRMED tak pernah muncul dan
+        # validasi MARKUP_START tetap berlaku apa adanya.
+        if s.get("queue_imbalance", 0.0) >= t["queue_imbalance_demand"]:
+            return "MARKUP_CONFIRMED"
         return "MARKUP_START"
 
     # ACCUMULATION_ONGOING: absorpsi, ATAU broker net buy senyap saat harga ranging.

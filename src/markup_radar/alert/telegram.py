@@ -11,6 +11,7 @@ import html
 import requests
 
 _EMOJI = {
+    "MARKUP_CONFIRMED": "✅",
     "MARKUP_START": "🚀",
     "ACCUMULATION_ONGOING": "🟡",
     "DISTRIBUTION_WARNING": "🔻",
@@ -23,8 +24,14 @@ def format_alert(date: str, items: list[dict]) -> str:
         return f"<b>Markup Radar</b> — {html.escape(date)}\nTidak ada sinyal actionable hari ini."
 
     lines = [f"<b>Markup Radar</b> — {html.escape(date)}", ""]
-    # Urutkan: MARKUP_START dulu, lalu confidence tertinggi.
-    order = {"MARKUP_START": 0, "ACCUMULATION_ONGOING": 1, "DISTRIBUTION_WARNING": 2}
+    # Urutkan: MARKUP_CONFIRMED dulu (tier konfirmasi), lalu MARKUP_START,
+    # selanjutnya confidence tertinggi.
+    order = {
+        "MARKUP_CONFIRMED": 0,
+        "MARKUP_START": 1,
+        "ACCUMULATION_ONGOING": 2,
+        "DISTRIBUTION_WARNING": 3,
+    }
     items = sorted(items, key=lambda x: (order.get(x["state"], 9), -x.get("confidence", 0)))
 
     for it in items:

@@ -23,15 +23,37 @@ def _base(**over):
 
 
 def test_markup_start():
+    # Gate dasar lolos tapi S5 (queue) belum menumpuk → tier START, bukan CONFIRMED.
     s = _base(done_ratio=0.68, rvol=2.3, close_in_range=0.8,
-              broker_net_buy_streak=3, ihsg_above_ma50=True)
+              broker_net_buy_streak=3, queue_imbalance=0.8, ihsg_above_ma50=True)
+    assert classify(s) == "MARKUP_START"
+
+
+def test_markup_confirmed_when_queue_demand_stacks():
+    # Gate dasar + antrian beli menumpuk di close (S5 >= demand) → tier konfirmasi.
+    s = _base(done_ratio=0.68, rvol=2.3, close_in_range=0.8,
+              broker_net_buy_streak=3, queue_imbalance=1.2, ihsg_above_ma50=True)
+    assert classify(s) == "MARKUP_CONFIRMED"
+
+
+def test_markup_confirmed_needs_base_gate():
+    # Queue tinggi saja tak cukup; gate dasar (done/rvol/cir/streak) tetap wajib.
+    s = _base(done_ratio=0.50, rvol=1.0, queue_imbalance=2.0)
+    assert classify(s) == "NEUTRAL"
+
+
+def test_backtest_no_queue_data_stays_markup_start():
+    # Di backtest S5 tak historis → queue_imbalance=0 < demand → tetap MARKUP_START.
+    s = _base(done_ratio=0.68, rvol=2.3, close_in_range=0.8,
+              broker_net_buy_streak=3, queue_imbalance=0.0)
     assert classify(s) == "MARKUP_START"
 
 
 def test_markup_not_vetoed_by_bearish_ihsg_but_lower_confidence():
     # IHSG bukan lagi veto keras (tuned 2026-06-21) — sinyal tetap MARKUP_START,
     # tapi market lemah menekan confidence (bobot `ihsg`), bukan memblokir.
-    strong = dict(done_ratio=0.68, rvol=2.3, close_in_range=0.8, broker_net_buy_streak=3)
+    strong = dict(done_ratio=0.68, rvol=2.3, close_in_range=0.8,
+                  broker_net_buy_streak=3, queue_imbalance=0.8)
     bull = _base(**strong, ihsg_above_ma50=True)
     bear = _base(**strong, ihsg_above_ma50=False)
     assert classify(bear) == "MARKUP_START"
