@@ -65,7 +65,9 @@ alert_states:
 telegram:
   chat_id: 6788518859
 
-# Aktifkan narasi via Claude API (opsional, Phase 6).
+# Aktifkan narasi via Claude API (Phase 6). Model claude-opus-4-8 (jangan
+# downgrade tanpa alasan; per panduan claude-api). Fallback rule-based otomatis
+# bila SDK/keys tak ada. ~1 call Opus per sinyal actionable/run (biaya kecil).
 narrative:
-  enabled: false
+  enabled: true
   model: claude-opus-4-8
