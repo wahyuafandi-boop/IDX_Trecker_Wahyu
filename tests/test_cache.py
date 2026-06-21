@@ -92,3 +92,78 @@ def test_load_history_uses_cache_on_second_run(tmp_path):
     assert client.calls == first              # tidak bertambah
     assert len(ds2.done) == 5
     cache.close()
+
+
+# ---------------------------------------------------------------------------- #
+# Coverage tracking (rentang yang sudah di-fetch)
+# ---------------------------------------------------------------------------- #
+def test_missing_ranges_empty_when_no_coverage(tmp_path):
+    c = HistoryCache(tmp_path / "t.db")
+    assert c.missing_ranges("ohlcv", "BBCA", "2025-01-01", "2025-01-10") == [
+        ("2025-01-01", "2025-01-10")
+    ]
+    c.close()
+
+
+def test_missing_ranges_full_coverage(tmp_path):
+    c = HistoryCache(tmp_path / "t.db")
+    c.record_coverage("ohlcv", "BBCA", "2025-01-01", "2025-01-31")
+    assert c.missing_ranges("ohlcv", "BBCA", "2025-01-05", "2025-01-20") == []
+    c.close()
+
+
+def test_missing_ranges_extension_tail(tmp_path):
+    c = HistoryCache(tmp_path / "t.db")
+    c.record_coverage("ohlcv", "BBCA", "2025-01-01", "2025-01-05")
+    assert c.missing_ranges("ohlcv", "BBCA", "2025-01-01", "2025-01-10") == [
+        ("2025-01-06", "2025-01-10")
+    ]
+    c.close()
+
+
+def test_missing_ranges_gap_in_middle(tmp_path):
+    c = HistoryCache(tmp_path / "t.db")
+    c.record_coverage("ohlcv", "BBCA", "2025-01-01", "2025-01-05")
+    c.record_coverage("ohlcv", "BBCA", "2025-01-10", "2025-01-15")
+    assert c.missing_ranges("ohlcv", "BBCA", "2025-01-01", "2025-01-15") == [
+        ("2025-01-06", "2025-01-09")
+    ]
+    c.close()
+
+
+def test_missing_ranges_code_scoped(tmp_path):
+    c = HistoryCache(tmp_path / "t.db")
+    c.record_coverage("ohlcv", "BBCA", "2025-01-01", "2025-01-31")
+    # coverage BBCA tak berlaku untuk kode lain.
+    assert c.missing_ranges("ohlcv", "BMRI", "2025-01-01", "2025-01-10") == [
+        ("2025-01-01", "2025-01-10")
+    ]
+    c.close()
+
+
+def test_record_coverage_idempotent(tmp_path):
+    c = HistoryCache(tmp_path / "t.db")
+    c.record_coverage("ohlcv", "BBCA", "2025-01-01", "2025-01-05")
+    c.record_coverage("ohlcv", "BBCA", "2025-01-01", "2025-01-05")  # dup → diabaikan
+    rows = c.conn.execute("SELECT COUNT(*) n FROM cache_coverage").fetchone()["n"]
+    assert rows == 1
+    c.close()
+
+
+def test_load_history_refetches_partial_coverage(tmp_path):
+    """Regresi: cache parsial TIDAK boleh dianggap lengkap — sisa rentang yang
+    hilang harus tetap ditarik (dulu skip-kalau-non-empty → backtest data kurang)."""
+    cache = HistoryCache(tmp_path / "t.db")
+    client = CountingClient(_ohlcv())
+
+    # Seed cache parsial: data + coverage hanya untuk sub-rentang awal.
+    cache.put_ohlcv("BBCA", _ohlcv().iloc[:2])
+    cache.record_coverage("ohlcv", "BBCA", "2025-01-01", "2025-01-02")
+    cache.record_coverage("ihsg", "", "2025-01-01", "2025-01-02")
+    cache.record_coverage("broker_net", "BBCA", "2025-01-01", "2025-01-02")
+
+    load_history(client, "BBCA", "2025-01-01", "2025-01-10", cache)
+    assert client.calls["ohlc"] >= 1     # menarik ekor 01-03..01-10
+    assert client.calls["ihsg"] >= 1
+    assert client.calls["broker"] >= 1
+    cache.close()

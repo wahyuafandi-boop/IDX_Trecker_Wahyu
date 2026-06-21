@@ -58,8 +58,11 @@ def load_history(
     """Rakit HistoricalDataset dari Invezgo API, dengan cache SQLite opsional.
 
     Bila `cache` (store.HistoryCache) diberikan, data dibaca dari cache lebih
-    dulu dan hanya tanggal yang belum ada yang ditarik dari API — krusial untuk
-    done detail (momentum-chart) yang per-tanggal & mahal.
+    dulu dan hanya RENTANG yang belum tercakup yang ditarik dari API (coverage
+    tracking). Penting: cache parsial (mis. sisa run pendek) tidak lagi dianggap
+    lengkap — sub-rentang lama yang hilang tetap ditarik & distitch, jadi
+    backtest tak diam-diam pakai data kurang. Done detail (momentum-chart,
+    per-tanggal & mahal) tetap ditarik hanya untuk tanggal yang belum di-cache.
 
     Field done/broker bergantung shape yang masih TODO(verify).
     """
@@ -68,30 +71,39 @@ def load_history(
     from markup_radar.ingest.ihsg_client import fetch_ihsg
     from markup_radar.ingest.ohlc_client import fetch_ohlcv
 
-    # --- OHLCV (1 call) ---
-    ohlcv = cache.get_ohlcv(code, date_from, date_to) if cache else pd.DataFrame()
-    if ohlcv.empty:
+    # --- OHLCV (auto-chunk + stitch di fetch_ohlcv) ---
+    if cache is None:
         ohlcv = fetch_ohlcv(client, code, date_from, date_to)
-        if cache:
-            cache.put_ohlcv(code, ohlcv)
+    else:
+        for mf, mt in cache.missing_ranges("ohlcv", code, date_from, date_to):
+            cache.put_ohlcv(code, fetch_ohlcv(client, code, mf, mt))
+            cache.record_coverage("ohlcv", code, mf, mt)
+        ohlcv = cache.get_ohlcv(code, date_from, date_to)
 
-    # --- IHSG (1 call, market-wide) ---
-    ihsg = cache.get_ihsg(date_from, date_to) if cache else pd.DataFrame()
-    if ihsg.empty:
+    # --- IHSG (market-wide; coverage code="") ---
+    if cache is None:
         ihsg = fetch_ihsg(client, date_from, date_to)
-        if cache:
-            cache.put_ihsg(ihsg)
+    else:
+        for mf, mt in cache.missing_ranges("ihsg", "", date_from, date_to):
+            cache.put_ihsg(fetch_ihsg(client, mf, mt))
+            cache.record_coverage("ihsg", "", mf, mt)
+        ihsg = cache.get_ihsg(date_from, date_to)
 
-    # --- Broker daily net (1 call) — join BY-DATE pakai tanggal asli broker.
+    # --- Broker daily net — join BY-DATE pakai tanggal asli broker.
     # Hindari align positional `ohlcv["date"][-len(net):]` yang rapuh: date-set
     # broker bisa beda dari OHLCV (ValueError saat lebih panjang / mislabel hari).
-    broker_df = cache.get_broker_net(code, date_from, date_to) if cache else pd.DataFrame()
-    if broker_df.empty:
+    if cache is None:
         dated = fetch_broker_daily_net_dated(client, code, date_from, date_to)
-        if dated:
-            broker_df = pd.DataFrame(dated, columns=["date", "net"])
-            if cache:
-                cache.put_broker_net(code, broker_df)
+        broker_df = pd.DataFrame(dated, columns=["date", "net"]) if dated else pd.DataFrame()
+    else:
+        for mf, mt in cache.missing_ranges("broker_net", code, date_from, date_to):
+            dated = fetch_broker_daily_net_dated(client, code, mf, mt)
+            if dated:
+                cache.put_broker_net(code, pd.DataFrame(dated, columns=["date", "net"]))
+            # Catat coverage walau kosong: broker memang bisa tak punya top-N net
+            # untuk rentang itu → jangan re-fetch sia-sia tiap run.
+            cache.record_coverage("broker_net", code, mf, mt)
+        broker_df = cache.get_broker_net(code, date_from, date_to)
 
     # --- Done detail (per-tanggal): tarik hanya tanggal yang belum di-cache ---
     dates = list(ohlcv["date"]) if not ohlcv.empty else []

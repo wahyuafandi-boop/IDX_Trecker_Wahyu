@@ -7,6 +7,7 @@ mahal) cukup ditarik sekali lalu di-cache.
 
 from __future__ import annotations
 
+import datetime as dt
 import sqlite3
 from pathlib import Path
 
@@ -32,11 +33,24 @@ CREATE TABLE IF NOT EXISTS cache_foreign (
 CREATE TABLE IF NOT EXISTS cache_ihsg (
     date TEXT PRIMARY KEY, close REAL
 );
+-- Lacak rentang KALENDER (bukan per-baris) yang sudah benar-benar di-fetch dari
+-- API, per (series, code). Tanpa ini, load_history menganggap cache parsial =
+-- lengkap (get_ohlcv non-empty → tak menarik sisa lama) → backtest diam-diam
+-- pakai data kurang. code="" untuk series market-wide (ihsg).
+CREATE TABLE IF NOT EXISTS cache_coverage (
+    series TEXT NOT NULL, code TEXT NOT NULL,
+    date_from TEXT NOT NULL, date_to TEXT NOT NULL,
+    PRIMARY KEY (series, code, date_from, date_to)
+);
 """
 
 
 def _iso(value) -> str:
     return pd.Timestamp(value).strftime("%Y-%m-%d")
+
+
+def _date(value) -> dt.date:
+    return pd.Timestamp(value).date()
 
 
 class HistoryCache:
@@ -129,6 +143,56 @@ class HistoryCache:
 
     def get_ihsg(self, date_from, date_to) -> pd.DataFrame:
         return self._read("cache_ihsg", ["close"], None, date_from, date_to)
+
+    # ------------------------------------------------------------------ #
+    # Coverage tracking (rentang yang sudah di-fetch)
+    # ------------------------------------------------------------------ #
+    def record_coverage(self, series: str, code: str | None, date_from, date_to) -> None:
+        """Tandai rentang kalender [date_from, date_to] sudah ditarik dari API
+        untuk (series, code). Idempoten (PRIMARY KEY mengabaikan duplikat)."""
+        self.conn.execute(
+            "INSERT OR IGNORE INTO cache_coverage (series, code, date_from, date_to) "
+            "VALUES (?, ?, ?, ?)",
+            (series, code or "", _iso(date_from), _iso(date_to)),
+        )
+        self.conn.commit()
+
+    def missing_ranges(
+        self, series: str, code: str | None, date_from, date_to
+    ) -> list[tuple[str, str]]:
+        """Sub-rentang dari [date_from, date_to] yang BELUM tercakup coverage.
+
+        Kembalikan list (from, to) hari-granular. Kosong = sudah lengkap; satu
+        rentang penuh = belum ada coverage sama sekali. Dipakai load_history
+        untuk menarik hanya bagian yang hilang (bukan skip-kalau-non-empty)."""
+        lo, hi = _date(date_from), _date(date_to)
+        if lo > hi:
+            return []
+        cur = self.conn.execute(
+            "SELECT date_from, date_to FROM cache_coverage WHERE series = ? AND code = ?",
+            (series, code or ""),
+        )
+        spans = []
+        for r in cur.fetchall():
+            a = max(_date(r["date_from"]), lo)
+            b = min(_date(r["date_to"]), hi)
+            if a <= b:
+                spans.append((a, b))
+        spans.sort()
+
+        one = dt.timedelta(days=1)
+        missing: list[tuple[str, str]] = []
+        cursor = lo
+        for a, b in spans:
+            if a > cursor:
+                missing.append((cursor.isoformat(), (a - one).isoformat()))
+            if b + one > cursor:
+                cursor = b + one
+            if cursor > hi:
+                break
+        if cursor <= hi:
+            missing.append((cursor.isoformat(), hi.isoformat()))
+        return missing
 
     def close(self) -> None:
         self.conn.close()
