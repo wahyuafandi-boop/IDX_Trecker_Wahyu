@@ -26,11 +26,9 @@ from markup_radar.config import load_settings, parse_codes
 from markup_radar.ingest import InvezgoClient
 from markup_radar.ingest.broker_client import (
     fetch_broker_daily_net,
-    fetch_broker_summary,
     fetch_closing_queue,
 )
 from markup_radar.ingest.done_client import fetch_done_breakdown
-from markup_radar.ingest.foreign_client import fetch_foreign_map, foreign_net_for
 from markup_radar.ingest.ihsg_client import fetch_ihsg
 from markup_radar.ingest.ohlc_client import fetch_ohlcv
 from markup_radar.narrative import generate_narrative
@@ -51,11 +49,16 @@ def build_stock_data(
     cfg,
     *,
     ihsg_close,
-    foreign_map: dict[str, float],
 ) -> StockData:
-    """Tarik & normalisasi data EOD per saham (5 call/saham).
+    """Tarik & normalisasi data EOD per saham (4 call/saham).
 
-    IHSG & foreign sudah ditarik 1x per run dan di-inject ke sini.
+    IHSG sudah ditarik 1x per run dan di-inject ke sini.
+
+    S4 broker_concentration & S8 foreign TIDAK di-fetch: keduanya tidak dipakai
+    classify()/confidence (plumbed-but-unused, audit 2026-06-21), jadi
+    fetch_broker_summary (dulu call #5) & top/foreign di-skip demi hemat kuota.
+    Field StockData terkait default (concentration/foreign_net = 0). Bila S4/S8
+    nanti di-wire ke scoring, tambah lagi fetch-nya di sini.
     """
     windows = cfg.windows
     ohlc_from, ohlc_to = _date_range(date, max(windows.get("volume_ma", 20) * 2, 60))
@@ -66,19 +69,15 @@ def build_stock_data(
     queue = fetch_closing_queue(client, code)                         # 3
     # Streak S3 dari 1 call inventory-chart (bukan loop per hari).
     daily_net = fetch_broker_daily_net(client, code, *_date_range(date, streak_lb))  # 4
-    # Concentration S4 dari agregat range.
-    broker_agg = fetch_broker_summary(client, code, *_date_range(date, streak_lb))   # 5
 
     return StockData(
         code=code,
         ohlcv=ohlcv,
         done_offer_value=done["done_offer_value"],
         done_bid_value=done["done_bid_value"],
-        broker_summary=broker_agg,
         broker_daily_net=daily_net,
         closing_bid_volume=queue["bid_volume"],
         closing_offer_volume=queue["offer_volume"],
-        foreign_net_value=foreign_net_for(code, foreign_map),
         ihsg_close=ihsg_close,
     )
 
@@ -116,21 +115,15 @@ def main() -> int:
     store = Store(cfg.db_path)
     narrative_cfg = cfg.narrative
 
-    # Data market-wide: tarik 1x per run, dipakai semua saham (hemat kuota).
+    # Data market-wide: IHSG ditarik 1x per run, dipakai semua saham (hemat kuota).
     ihsg = fetch_ihsg(client, *_date_range(date, cfg.windows.get("ihsg_ma", 50) * 2))
     ihsg_close = ihsg["close"] if not ihsg.empty else None
-    try:
-        foreign_map = fetch_foreign_map(client, date.isoformat())
-    except Exception as exc:  # noqa: BLE001 — foreign opsional (S8)
-        print(f"[WARN] foreign map: {exc}", file=sys.stderr)
-        foreign_map = {}
 
     actionable: list[dict] = []
     for code in cfg.watchlist:
         try:
             data = build_stock_data(
-                client, code, date, cfg,
-                ihsg_close=ihsg_close, foreign_map=foreign_map,
+                client, code, date, cfg, ihsg_close=ihsg_close,
             )
             signals = compute_signals(data, cfg.thresholds, cfg.windows, cfg.broker_top_n)
             state = classify(signals, cfg.thresholds)
