@@ -2,10 +2,13 @@
 
 import time
 
+import pandas as pd
+
 from markup_radar.ingest.broker_client import fetch_broker_daily_net
 from markup_radar.ingest.client import _RateLimiter
 from markup_radar.ingest.done_client import fetch_done_breakdown
 from markup_radar.ingest.foreign_client import fetch_foreign_map, foreign_net_for
+from markup_radar.ingest.ohlc_client import fetch_ohlcv
 
 
 class FakeClient:
@@ -122,6 +125,57 @@ def test_done_breakdown_dict_shape_swapped():
     out = fetch_done_breakdown(DoneClient({"buy": 5, "sell": 12}), "X", "d")
     assert out["done_offer_value"] == 12.0  # <- `sell`
     assert out["done_bid_value"] == 5.0     # <- `buy`
+
+
+# ---- OHLCV chunking (cap server ~6 bln/req) ----
+class CapStockClient:
+    """Stub stock_chart yang meniru cap server: kembalikan maksimal `cap` hari
+    bursa TERAKHIR yang berakhir di `to` (mengabaikan `from` bila rentang > cap).
+    """
+
+    def __init__(self, start, end, cap=120):
+        self.universe = pd.bdate_range(start, end)
+        self.cap = cap
+        self.calls = 0
+
+    def stock_chart(self, code, date_from, date_to):
+        self.calls += 1
+        avail = self.universe[self.universe <= pd.Timestamp(date_to)]
+        sel = avail[-self.cap:]
+        return [
+            {"date": d.strftime("%Y-%m-%dT00:00:00.000Z"),
+             "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100}
+            for d in sel
+        ]
+
+
+def test_fetch_ohlcv_stitches_long_range_across_chunks():
+    client = CapStockClient("2025-01-01", "2026-06-19", cap=120)
+    df = fetch_ohlcv(client, "BBRI", "2025-03-03", "2026-06-19")
+    expected = pd.bdate_range("2025-03-03", "2026-06-19")
+    assert len(df) == len(expected)          # cakupan penuh meski > cap
+    assert client.calls >= 3                 # butuh beberapa chunk
+    assert df["date"].is_monotonic_increasing
+    assert df["date"].min() == expected[0]
+    assert df["date"].max() == expected[-1]
+    assert df["date"].dt.tz is None          # tz-naive (UTC midnight -> naive)
+
+
+def test_fetch_ohlcv_single_call_when_within_cap():
+    client = CapStockClient("2024-01-01", "2026-06-19", cap=120)
+    df = fetch_ohlcv(client, "BBRI", "2026-03-19", "2026-06-19")  # ~65 hari bursa
+    assert client.calls == 1                 # 1 chunk cukup
+    assert df["date"].min() == pd.Timestamp("2026-03-19")
+    assert df["date"].max() == pd.Timestamp("2026-06-19")
+
+
+def test_fetch_ohlcv_empty_when_no_data():
+    class Empty:
+        def stock_chart(self, *a, **k):
+            return []
+    df = fetch_ohlcv(Empty(), "X", "2025-01-01", "2026-01-01")
+    assert df.empty
+    assert list(df.columns) == ["date", "open", "high", "low", "close", "volume"]
 
 
 # ---- Foreign map (1 call, lookup lokal) ----
