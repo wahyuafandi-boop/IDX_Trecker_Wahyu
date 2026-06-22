@@ -2,7 +2,7 @@
 
 import pytest
 
-from markup_radar.config import parse_codes
+from markup_radar.config import load_codes_file, parse_codes
 
 
 @pytest.mark.parametrize(
@@ -19,3 +19,22 @@ from markup_radar.config import parse_codes
 )
 def test_parse_codes(tokens, expected):
     assert parse_codes(tokens) == expected
+
+
+def test_load_codes_file(tmp_path):
+    f = tmp_path / "watchlist_today.txt"
+    f.write_text(
+        "# komentar header\n"
+        "BBCA\n"
+        "bbri, BMRI   # campur koma/spasi + komentar inline\n"
+        "\n"                 # baris kosong
+        "BBCA\n"             # duplikat -> di-dedup
+        "   \n",
+        encoding="utf-8",
+    )
+    assert load_codes_file(f) == ["BBCA", "BBRI", "BMRI"]
+
+
+def test_load_codes_file_missing(tmp_path):
+    with pytest.raises(OSError):
+        load_codes_file(tmp_path / "tidak_ada.txt")

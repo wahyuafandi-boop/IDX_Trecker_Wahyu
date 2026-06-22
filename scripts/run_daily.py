@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from markup_radar.alert import format_alert, send_telegram
-from markup_radar.config import load_settings, parse_codes
+from markup_radar.config import load_codes_file, load_settings, parse_codes
 from markup_radar.ingest import InvezgoClient
 from markup_radar.ingest.broker_client import (
     fetch_broker_daily_net,
@@ -97,17 +97,33 @@ def main() -> int:
         "--codes BBCA BBRI. Kalau tidak diberikan, pakai watchlist di "
         "config/settings.yaml.",
     )
+    ap.add_argument(
+        "--codes-file",
+        metavar="PATH",
+        help="baca watchlist dari file teks (1 kode/baris, hasil screening "
+        "Stockbit), mis. --codes-file watchlist_today.txt. Dikalahkan oleh --codes.",
+    )
     args = ap.parse_args()
 
     cfg = load_settings()
+    override = None
     if args.codes:
-        codes = parse_codes(args.codes)
-        if codes:
-            cfg.raw["watchlist"] = codes
-            print(f"[info] watchlist override (--codes): {', '.join(codes)}",
+        override = parse_codes(args.codes)
+        src = "--codes"
+    elif args.codes_file:
+        try:
+            override = load_codes_file(args.codes_file)
+        except OSError as exc:
+            print(f"[ERROR] gagal baca --codes-file: {exc}", file=sys.stderr)
+            return 1
+        src = args.codes_file
+    if override is not None:
+        if override:
+            cfg.raw["watchlist"] = override
+            print(f"[info] watchlist override ({src}): {', '.join(override)}",
                   file=sys.stderr)
         else:
-            print("[WARN] --codes tidak berisi kode valid; "
+            print(f"[WARN] {src} tidak berisi kode valid; "
                   "fallback ke watchlist config.", file=sys.stderr)
     client = InvezgoClient(
         cfg.invezgo_api_key,

@@ -124,28 +124,78 @@ def fetch_broker_daily_net(
     return [net for _, net in fetch_broker_daily_net_dated(client, code, date_from, date_to, top_n=top_n)]
 
 
-def fetch_closing_queue(client: InvezgoClient, code: str) -> dict[str, float]:
-    """Order book -> {bid_volume, offer_volume} antrian closing (S5).
+def _order_levels(side) -> list[dict[str, float]]:
+    """Parse list level order book -> [{price, lot, freq}] urut sesuai API
+    (asumsi level terbaik di indeks 0). Ambil value dgn key berakhiran
+    price/lot/freq (case-insensitive) -> robust utk penomoran bidN/offerN."""
+    out: list[dict[str, float]] = []
+    for level in side or []:
+        if not isinstance(level, dict):
+            continue
+        price = lot = freq = 0.0
+        for k, v in level.items():
+            kl = str(k).lower()
+            if kl.endswith("price"):
+                price = _f(v)
+            elif kl.endswith("freq"):
+                freq = _f(v)
+            elif kl.endswith("lot"):
+                lot = _f(v)
+        out.append({"price": price, "lot": lot, "freq": freq})
+    return out
+
+
+def fetch_closing_queue(
+    client: InvezgoClient, code: str, *, top_levels: int = 4
+) -> dict[str, float]:
+    """Order book -> antrian closing (S5) + komposisi top-N (tape-reading).
 
     Shape Invezgo: {code, bid:[{bid1price,bid1lot,bid1freq}], offer:[{...}]}.
-    Jumlahkan semua field *lot di tiap sisi (robust utk multi-level).
+    Mengembalikan DUA lapis informasi:
+      - bid_volume/offer_volume : jumlah lot SEMUA level (kontrak lama, dipakai
+        path EOD run_daily + backtest — JANGAN diubah semantiknya).
+      - *_top_lot/*_top_freq + *_lot_per_order : agregat `top_levels` baris teratas
+        ("yang nyata" per bandarmologi) + lot/order untuk deteksi big money.
     """
     raw = client.order_book(code)
     book = raw[0] if isinstance(raw, list) and raw else (raw or {})
 
-    def _sum_lots(side) -> float:
-        total = 0.0
-        for level in side or []:
-            for k, v in (level or {}).items():
-                if k.lower().endswith("lot"):
-                    total += _f(v)
-        return total
+    bid_levels = _order_levels(book.get("bid"))
+    offer_levels = _order_levels(book.get("offer"))
 
-    bid_vol = _sum_lots(book.get("bid"))
-    offer_vol = _sum_lots(book.get("offer"))
-    # fallback ke shape datar lama bila perlu.
-    if bid_vol == 0:
-        bid_vol = _f(_pick(book, "bid1Lot", "Bid1Lot", "bidVolume"))
-    if offer_vol == 0:
-        offer_vol = _f(_pick(book, "offer1Lot", "Offer1Lot", "offerVolume"))
-    return {"bid_volume": bid_vol, "offer_volume": offer_vol}
+    # fallback ke shape datar lama (tanpa list level) -> 1 level sintetis.
+    if not bid_levels:
+        flat = _f(_pick(book, "bid1Lot", "Bid1Lot", "bidVolume"))
+        if flat:
+            bid_levels = [{"price": _f(_pick(book, "bid1Price", "Bid1Price")),
+                           "lot": flat, "freq": _f(_pick(book, "bid1Freq", "Bid1Freq"))}]
+    if not offer_levels:
+        flat = _f(_pick(book, "offer1Lot", "Offer1Lot", "offerVolume"))
+        if flat:
+            offer_levels = [{"price": _f(_pick(book, "offer1Price", "Offer1Price")),
+                             "lot": flat, "freq": _f(_pick(book, "offer1Freq", "Offer1Freq"))}]
+
+    bid_top = bid_levels[:top_levels]
+    offer_top = offer_levels[:top_levels]
+
+    def _s(levels, key) -> float:
+        return float(sum(lv[key] for lv in levels))
+
+    def _lpo(lot, freq) -> float:
+        return float(lot / freq) if freq > 0 else 0.0
+
+    bid_top_lot, bid_top_freq = _s(bid_top, "lot"), _s(bid_top, "freq")
+    offer_top_lot, offer_top_freq = _s(offer_top, "lot"), _s(offer_top, "freq")
+
+    return {
+        "bid_volume": _s(bid_levels, "lot"),        # all-level (EOD compat)
+        "offer_volume": _s(offer_levels, "lot"),
+        "bid_top_lot": bid_top_lot,                  # top-N (live read)
+        "offer_top_lot": offer_top_lot,
+        "bid_top_freq": bid_top_freq,
+        "offer_top_freq": offer_top_freq,
+        "bid_lot_per_order": _lpo(bid_top_lot, bid_top_freq),
+        "offer_lot_per_order": _lpo(offer_top_lot, offer_top_freq),
+        "n_bid_levels": float(len(bid_levels)),
+        "n_offer_levels": float(len(offer_levels)),
+    }

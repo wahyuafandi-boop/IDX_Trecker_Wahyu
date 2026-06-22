@@ -35,6 +35,23 @@ def parse_codes(tokens: list[str]) -> list[str]:
     return out
 
 
+def load_codes_file(path: str | Path) -> list[str]:
+    """Baca daftar kode saham dari file teks (watchlist harian hasil screening).
+
+    Satu kode per baris, tapi toleran: pemisah koma/spasi, baris kosong, dan
+    komentar (apa pun setelah ``#`` diabaikan). Cocok untuk paste hasil screener
+    Stockbit ke `watchlist_today.txt` lalu pakai via ``--codes-file``. Hasil
+    di-normalisasi sama seperti `parse_codes` (UPPERCASE, tanpa duplikat).
+    """
+    tokens: list[str] = []
+    with open(path, "r", encoding="utf-8-sig") as fh:  # utf-8-sig: aman dari BOM
+        for line in fh:
+            line = line.split("#", 1)[0]  # buang komentar
+            if line.strip():
+                tokens.append(line)
+    return parse_codes(tokens)
+
+
 @dataclass
 class Settings:
     """Konfigurasi engine yang sudah di-resolve (yaml + env)."""

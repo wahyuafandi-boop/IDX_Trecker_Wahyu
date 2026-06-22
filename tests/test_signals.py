@@ -67,6 +67,81 @@ def test_queue_verdict_respects_demand_threshold():
     assert price_volume.queue_verdict(1.25, demand=1.2) == "DEMAND_DOMINAN"
 
 
+# ---- S5 komposisi (tape-reading bandarmologi) ----
+def test_lot_per_order():
+    assert price_volume.lot_per_order(2000, 20) == 100.0
+    assert price_volume.lot_per_order(100, 0) == 0.0   # freq 0 -> tak bisa disimpulkan
+
+
+def _comp(b_lot, b_freq, o_lot, o_freq):
+    return price_volume.queue_composition_verdict(b_lot, b_freq, o_lot, o_freq)
+
+
+def test_composition_passive_accum():
+    # offer LEBIH berat (imb 0.5) tapi bid diisi order jumbo (200/2=100 lot/order)
+    # vs offer ritel (400/40=10) -> bandar nampung diam-diam.
+    assert _comp(200, 2, 400, 40) == "PASSIVE_ACCUM"
+
+
+def test_composition_passive_distrib():
+    # rasio kelihatan demand (imb 2.0) tapi offer = big money (500/5=100) menekan
+    # vs bid ritel (1000/50=20) -> jual diam-diam, jangan beli.
+    assert _comp(1000, 50, 500, 5) == "PASSIVE_DISTRIB"
+
+
+def test_composition_ritel_noise():
+    # kedua sisi order kecil acak (lpo 10) -> rasio tak bisa dipercaya.
+    assert _comp(300, 30, 300, 30) == "RITEL_NOISE"
+    # imb ekstrem pun tetap noise kalau tak ada big money.
+    assert _comp(1000, 100, 100, 10) == "RITEL_NOISE"
+
+
+def test_composition_clear_ratio_with_bigmoney():
+    # big money kedua sisi & bid jelas dominan (lpo 200>100, imb 3.0) -> DEMAND terang.
+    assert _comp(600, 3, 200, 2) == "DEMAND_DOMINAN"
+    # offer = big money & dominan kuat (lpo offer 200>bid 50, imb 0.25) -> SUPPLY terang.
+    assert _comp(200, 4, 800, 4) == "SUPPLY_DOMINAN"
+
+
+def test_composition_edges():
+    assert _comp(0, 0, 0, 0) == "NO_DATA"
+    assert _comp(500, 5, 0, 0) == "DEMAND_DOMINAN"   # tak ada antri jual
+    assert _comp(0, 0, 500, 5) == "SUPPLY_DOMINAN"   # tak ada antri beli
+
+
+# ---- S5 intent (fake-over / fake-bid + konteks akumulasi) ----
+def _intent(b_lot, b_freq, o_lot, o_freq, accumulating):
+    return price_volume.queue_intent_verdict(
+        b_lot, b_freq, o_lot, o_freq, accumulating=accumulating)
+
+
+def test_intent_fake_over_vs_supply_real():
+    # Tembok offer (8000 lot / 4 freq = 2000 lot/order), offer lebih berat dari bid.
+    # + akumulasi -> FAKE_OVER (MM tahan harga buat nampung = bullish).
+    assert _intent(2000, 20, 8000, 4, True) == "FAKE_OVER"
+    # tanpa akumulasi -> suplai/distribusi asli.
+    assert _intent(2000, 20, 8000, 4, False) == "SUPPLY_REAL"
+
+
+def test_intent_fake_bid_vs_demand_real():
+    # Tembok bid (8000 lot / 4 freq = 2000 lot/order), bid lebih berat dari offer.
+    # tanpa akumulasi -> FAKE_BID (ilusi demand sambil distribusi = jebakan).
+    assert _intent(8000, 4, 2000, 20, False) == "FAKE_BID"
+    # + akumulasi -> demand asli.
+    assert _intent(8000, 4, 2000, 20, True) == "DEMAND_REAL"
+
+
+def test_intent_falls_back_to_composition_when_no_bigmoney():
+    # Tak ada tembok big money (kedua sisi lpo kecil) -> baca komposisi murni.
+    assert _intent(300, 30, 300, 30, True) == "RITEL_NOISE"
+    # nampung tersembunyi: offer berat retail, bid big money -> PASSIVE_ACCUM.
+    assert _intent(200, 2, 400, 40, False) == "PASSIVE_ACCUM"
+
+
+def test_intent_no_data():
+    assert _intent(0, 0, 0, 0, True) == "NO_DATA"
+
+
 # ---- S6 RVOL ----
 def test_rvol_spike():
     vol = pd.Series([100] * 20 + [200])  # hari ini 2x MA20

@@ -46,6 +46,14 @@ thresholds:
                               # LIVE-only (order book tak historis → backtest S5=0,
                               # CONFIRMED tak muncul). Tune 1.0–1.2 setelah data live
                               # terkumpul; >1.0 = butuh demand antri lebih dominan.
+  queue_top_levels: 4         # S5 live: jumlah baris bid/offer "nyata" yg dibaca
+                              # (bandarmologi: 4 teratas; level dalam sering diada-ada).
+  queue_bigmoney_lot_per_order: 20  # S5 live: lot/order (lot/freq) top-N >= ini =
+                              # sidik jari big money (order gede / lot seragam). Ritel =
+                              # order kecil acak (lpo rendah). Price-dependent → tune
+                              # setelah lihat data live (jalankan live_watch --probe).
+  queue_wall_pull_drop: 0.35  # S5 live: tembok offer mengecil >= 35% antar-siklus =
+                              # dicabut/dimakan ('v') → sering pemicu jebol (entry).
   absorption_min_rvol: 1.5    # S2: butuh volume "tinggi"
   broker_net_buy_streak_min: 3  # ACCUMULATION_ONGOING
   near_range_high: 0.80       # DISTRIBUTION_WARNING

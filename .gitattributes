@@ -1,0 +1,2 @@
+# Wrapper shell WAJIB LF biar jalan di Linux (VPS) walau di-commit dari Windows.
+*.sh text eol=lf
