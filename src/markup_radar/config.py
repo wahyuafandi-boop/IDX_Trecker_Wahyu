@@ -83,6 +83,18 @@ class Settings:
         return dict(self.raw.get("score_weights", {}))
 
     @property
+    def regime_profiles(self) -> dict[str, dict]:
+        """Overlay thresholds per regime (BULLISH/BEARISH). Dipakai:
+        ``eff = {**cfg.thresholds, **cfg.regime_profiles[regime.value]}`` (spec §4.5)."""
+        return dict(self.raw.get("regime_profiles", {}))
+
+    @property
+    def levels(self) -> dict[str, Any]:
+        """Param trade levels lintas-regime (breakout_buffer, atr_period,
+        min_stop_pct, hold_slack). atr_mult_sl & rr_target diambil dari profil regime."""
+        return dict(self.raw.get("levels", {}))
+
+    @property
     def broker_top_n(self) -> int:
         return int(self.raw.get("broker", {}).get("top_n", 5))
 
