@@ -18,18 +18,40 @@
 | **F1** | Primitives: `atr`, `donchian` (price_volume), `relative_strength`, `market_regime`, `Regime` (market) | ✅ **DONE** 2026-06-23 | `test_signals.py` 39 ✓ |
 | **F2** | Levels: `signals/levels.py` baru — `TradeLevels` + `compute_trade_levels` (R:R dihitung, floor stop, est_hold) | ✅ **DONE** 2026-06-23 | `test_levels.py` 9 ✓ |
 | **F3** | Profiles & config: blok `regime_profiles` di `settings.yaml` + property `cfg.regime_profiles` + loader | ✅ **DONE** 2026-06-23 | `test_config.py` 15 ✓ |
-| **F4** | Classifier RS gate (opt-in via profil) + `relative_strength` wiring di `compute_signals` | ⬜ TODO | `test_classifier.py` (+regresi backward-compat) |
-| **F5** | Integrasi `run_daily.py`: resolve regime → profil → classify → levels → record | ⬜ TODO | — |
-| **F6** | Alert v2: `format_alert` render level + regime tag (HANYA state MARKUP_*) | ⬜ TODO | `test_alert.py` |
+| **F4** | Classifier RS gate (opt-in via profil) + `relative_strength` wiring di `compute_signals` + score §4.7 | ✅ **DONE** 2026-06-23 | `test_classifier.py` (+regresi) |
+| **F5** | Integrasi `run_daily.py`: resolve regime → profil → classify → levels → record | ✅ **DONE** 2026-06-23 | `test_run_daily.py` 5 ✓ |
+| **F6** | Alert v2: `format_alert` render level + regime tag (HANYA state MARKUP_*) | ✅ **DONE** 2026-06-23 | `test_alert.py` 9 ✓ |
 | **F7** | Backtest regime-aware: `replay` regime-per-bar + `simulate_exit` (SL-first) + NULL model | ⬜ TODO | `test_backtest.py` |
 | **F8** | **TUNE** (gate sebelum live): rvol per-regime, ablation RS, tentukan angka final di YAML | ⬜ TODO | — |
 
-**Full suite saat ini:** `131 passed`.
+**Full suite saat ini:** `144 passed`.
 
 ---
 
 ## Changelog
 
+- **2026-06-23 — F6 selesai.** `format_alert` v2: header dapat tag `· REGIME · RS ±x.x%`; baris
+  `📍 Resis/Support/ATR` + `🎯 Entry/SL(−%)/TP(R:R)/~hold` HANYA saat `levels` ada (MARKUP_*);
+  state lain (DISTRIBUTION/ACCUMULATION) tampil warning tanpa entry. Footer baru regime-aware.
+  Semua field v2 dibaca via `.get()` → item lama tetap kompatibel. `test_alert.py` +5 (render level,
+  R:R dari levels bukan label, non-markup tanpa entry, footer, backward-compat). Suite: 139 → 144.
+  *Deviasi kecil:* spec contoh tampilkan "Close" di baris 📍 — close mentah tak ada di record/signals,
+  jadi dirender Resis/Support/ATR saja (TODO bila mau Close: plumb close ke record di run_daily).
+  *Catatan:* "resis to watch" utk ACCUMULATION belum (butuh donchian dihitung utk non-markup juga).
+- **2026-06-23 — F5 selesai.** Integrasi `run_daily.py`: resolve `regime` SEKALI per run dari
+  IHSG → `eff = {**thresholds, **profile}`; helper baru `evaluate(data, signals, cfg, eff)` (pure,
+  testable offline) → classify pakai `eff` + levels HANYA untuk MARKUP_* (atr_mult_sl/rr_target dari
+  profil, sisanya dari blok `levels`). Record dapat key `regime`/`relative_strength`/`levels`; log
+  per-saham tampilkan RS%. `test_run_daily.py` 5 test (markup→levels, non-markup→None, BEARISH
+  perketat SL, RS-gate blokir underperform). Suite: 134 → 139. *Catatan:* `format_alert` belum render
+  key baru (itu F6); backtest replay belum regime-aware (F7).
+- **2026-06-23 — F4 selesai.** Classifier RS gate OPT-IN di `classify()` (klausa
+  `(not require_rs or outperforms)` → no-op saat profil default → backward-compatible).
+  Wiring `relative_strength` (S10) di `compute_signals` (nilai mentah, gate di classifier).
+  Beresin utang §4.7: `score.py` tambah norm `relative_strength` + rebalance bobot (queue 10→5,
+  ihsg 10→5, +RS 10, total tetap 100); `settings.yaml score_weights` disamakan. 3 test RS-gate baru
+  (BEARISH underperform→NEUTRAL, outperform→MARKUP_START, regresi no-op) + update
+  `test_confidence_high` (perfect score kini butuh RS). Demo markup conf 90→80 (tetap ≥70). Suite: 131 → 134.
 - **2026-06-23 — F3 selesai.** Tambah di `settings.yaml`: `windows.rs_window`/`donchian_lookback`,
   blok `regime_profiles` (BULLISH/BEARISH), blok `levels`. Tambah property `cfg.regime_profiles` &
   `cfg.levels` di `config.py`. 6 test di `test_config.py`. **DITUNDA (sengaja, bukan F3):** rebalance
@@ -60,6 +82,7 @@
 
 - Memory anchor: `markup-radar-v2-progress` (di MEMORY.md) menunjuk ke file ini.
 - F1–F3 sudah di-commit di branch `markup-radar-engine` (belum di-push ke remote/VPS/cloud).
-- **Utang teknis F4:** rebalance `score_weights` (queue_imbalance 10→5, ihsg 10→5, +relative_strength 10)
-  HARUS barengan edit `score.py` §4.7 (tambah norm `relative_strength`), kalau tidak total bobot ≠ 100.
+- **F4+F5+F6 UNCOMMITTED** di working tree. F4: classifier.py, signals/__init__.py, score.py,
+  settings.yaml, test_classifier.py. F5: scripts/run_daily.py, tests/test_run_daily.py. F6:
+  alert/telegram.py, tests/test_alert.py (+tracker). Utang `score_weights` §4.7 sudah LUNAS.
 - Spec lengkap per-file ada di `markup-radar-spec-2.md` §4 (modul), §6 (YAML), §7 (test DoD).
