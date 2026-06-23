@@ -6,9 +6,12 @@
 > Setelah menyelesaikan satu fase: **centang tabel + tambah baris changelog**, lalu lapor ke user.
 
 - **Branch kerja:** `markup-radar-engine`
-- **HEAD:** `1e56340` (F7) — **F1–F7 sudah COMMITTED** (F1 `0719766`, F2 `b5e35b9`, F3 `a442b53`,
-  F4 `0e7d391`, F5 `6bcce33`, F6 `55416aa`, F7 `1e56340`). **Belum di-push** ke remote/VPS/cloud.
+- **HEAD:** `1e56340` (F7) — **F1–F7 COMMITTED** (F1 `0719766`..F7 `1e56340`). **F8 + 3 bugfix ingest
+  UNCOMMITTED** di working tree (dataset.py, ohlc_client.py, ihsg_client.py, _history.py baru,
+  test_ingest.py, settings.yaml, scripts/tune_f8.py + tracker). **Semua belum di-push.**
 - **Package:** `markup_radar` (JANGAN rename — spec §10)
+- **REFACTOR v2 (F1–F8) SELESAI.** Verdict F8: pertahankan prior (data tipis). Engine belum
+  live-ready dgn keyakinan statistik — butuh akumulasi sinyal forward dulu (lihat changelog F8).
 
 ---
 
@@ -23,14 +26,35 @@
 | **F5** | Integrasi `run_daily.py`: resolve regime → profil → classify → levels → record | ✅ **DONE** 2026-06-23 | `test_run_daily.py` 5 ✓ |
 | **F6** | Alert v2: `format_alert` render level + regime tag (HANYA state MARKUP_*) | ✅ **DONE** 2026-06-23 | `test_alert.py` 9 ✓ |
 | **F7** | Backtest regime-aware: `replay` regime-per-bar + `simulate_exit` (SL-first) + NULL model | ✅ **DONE** 2026-06-23 | `test_backtest.py` 18 ✓ |
-| **F8** | **TUNE** (gate sebelum live): rvol per-regime, ablation RS, tentukan angka final di YAML | ⬜ TODO | — |
+| **F8** | **TUNE** (gate sebelum live): rvol per-regime, ablation RS, tentukan angka final di YAML | ✅ **DONE** 2026-06-23 — verdict: data tipis, PERTAHANKAN prior | `scripts/tune_f8.py` |
 
-**Full suite saat ini:** `155 passed`.
+**Full suite saat ini:** `156 passed`.
 
 ---
 
 ## Changelog
 
+- **2026-06-23 — F8 SELESAI (verdict: PERTAHANKAN prior).** Run penuh 7 saham (AVIA TPIA BULL
+  HEAL MAPA BREN PTRO, 2024-06..2026-06) lewat `scripts/tune_f8.py`. Hasil: **sinyal MARKUP terlalu
+  sedikit untuk tuning meyakinkan** — BULLISH n~5-28 across rvol grid (hit@fwd_close+5%/20d 17-29%,
+  TIDAK naik dgn rvol = bukan edge, kemungkinan noise); BEARISH n~1-5 (hit 0%). Ablation RS
+  inconclusive (n=1 vs 2). Levels>null directional positif (agg edge +12%, 2/3 stok) tapi didorong
+  1 trade (BULL +31%). **KEPUTUSAN: tak ubah threshold** (overfit noise / longgarkan rvol bear =
+  langgar spec §2/§10). settings.yaml comment di-update: prior SUDAH dicek empiris (bukan tebakan
+  buta), belum "final" sampai cukup sinyal forward (mirror Sheets) utk tune dgn n memadai. Bottleneck
+  sebenarnya: sinyal langka by-design + horizon data API ~20 bln + per-saham. Engine TAK live-ready
+  dgn keyakinan statistik; pipeline & tooling siap.
+- **2026-06-23 — F8 DIMULAI + 3 BUGFIX ingest (blocker backtest panjang).** Universe tuning:
+  AVIA TPIA BULL HEAL MAPA BREN PTRO (medium-cap, lintas sektor), window 2024-06..2026-06
+  (~20 bln; regime split AVIA ~BULLISH 209/BEARISH 201 → kedua regime kebagian). Bug ditemukan
+  & diperbaiki saat F8 (endpoint chart Invezgo cap ~6 bln + horizon histori ~2 thn):
+  (1) `fetch_ohlcv` kirim full-range → 422; fix: windowed chunk + degrade rapi via helper baru
+  `ingest/_history.fetch_windowed`. (2) `fetch_ihsg` (index endpoint) bug sama → pakai helper sama.
+  (3) `load_history` broker `from` di luar horizon → inventory balikin EMPTY (bukan 422) → broker
+  net cuma ~recent → streak S3 mati → 0 MARKUP historis; fix: clamp broker `from` ke awal OHLCV.
+  Setelah fix: AVIA broker 430 baris, streak>=1 di 80% bar, 3 sinyal MARKUP/20bln (selektif, wajar).
+  Tooling: `scripts/tune_f8.py` (rvol per-regime, ablation RS, levels-vs-null). Tests ingest +1
+  (regresi 422-boundary), suite 156.
 - **2026-06-23 — F7 selesai.** Backtest regime-aware. `engine.replay`: param `regime_profiles`,
   resolve regime per-bar dari IHSG-sampai-tanggal (no lookahead) → `eff` → classify; kolom baru
   `regime`/`relative_strength`; default horizon 5→20. `metrics`: `simulate_exit` (SL-first
@@ -90,11 +114,13 @@
 ## Catatan untuk sesi berikutnya
 
 - Memory anchor: `markup-radar-v2-progress` (di MEMORY.md) menunjuk ke file ini.
-- **F1–F7 sudah di-commit** di branch `markup-radar-engine`. **Semua belum di-push** ke
-  remote/VPS/cloud (sesi mesin-lain / GH Actions belum lihat refactor v2 sampai di-push).
-- **F8 (TUNE) = fase terakhir & GERBANG sebelum live.** Jalankan spec §5 pada DATA NYATA via
-  `scripts/backtest.py`: (1) tune `rvol_spike` per regime (fwd_close, horizon 20), (2) ablation RS
-  (hit-rate BEARISH dengan vs tanpa gate), (3) `backtest_levels` vs `null_model` — level cuma layak
-  bila ngalahin random-entry setelah ongkos. Tulis angka final ke `settings.yaml`. Butuh kuota
-  Invezgo (cek [[invezgo-subscription]]).
+- **F1–F8 SELESAI.** F1–F7 di-commit; **F8 + 3 bugfix ingest belum di-commit, semua belum di-push.**
+- **Langkah lanjut (BUKAN refactor lagi — soal data/validasi):**
+  1. **Commit + push** kerjaan F8 (ingest fixes + tune script + YAML) ke `markup-radar-engine`.
+  2. **Kumpulkan sinyal forward** dulu sebelum nge-tune final: jalankan EOD harian (sudah mirror ke
+     Sheets) sampai ada cukup MARKUP (n besar) → baru tune rvol/RS dgn keyakinan + base-rate NEUTRAL.
+  3. Re-run `scripts/tune_f8.py` berkala (cache bikin murah) untuk update verdict saat n bertambah.
+  4. Pertimbangkan perluas universe / turunkan horizon data-start bila mau n lebih cepat.
+- **Cara jalankan tune ulang:** `python scripts/tune_f8.py --from 2024-08-01 --to <today> --codes <list>`
+  (mulai 2024-08 = dalam horizon data API; lebih awal ditolak 422 → auto-degrade). `--probe` utk cek 1 saham.
 - Spec lengkap per-file ada di `markup-radar-spec-2.md` §4 (modul), §6 (YAML), §7 (test DoD).
