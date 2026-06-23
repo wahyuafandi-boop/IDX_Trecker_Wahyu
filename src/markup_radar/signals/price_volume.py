@@ -195,3 +195,31 @@ def price_ranging(closes: pd.Series, window: int = 10, band: float = 0.05) -> bo
 def near_range_high(high: float, low: float, close: float, threshold: float = 0.8) -> bool:
     """True bila close berada di dekat puncak range harian (untuk distribusi)."""
     return close_in_range(high, low, close) >= threshold
+
+
+def atr(high, low, close, period: int = 14) -> float:
+    """Average True Range (Wilder disederhanakan = SMA of True Range).
+
+    True Range = max(high-low, |high-prev_close|, |low-prev_close|). Dipakai untuk
+    trade levels (jarak SL ATR-based). 0.0 bila tak ada data.
+    """
+    h, l, c = (pd.Series(x).astype(float) for x in (high, low, close))
+    pc = c.shift(1)
+    tr = pd.concat([(h - l), (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1).dropna()
+    if tr.empty:
+        return 0.0
+    win = tr.iloc[-period:] if len(tr) >= period else tr
+    return float(win.mean())
+
+
+def donchian(high, low, lookback: int = 20) -> tuple[float, float]:
+    """(resistance, support) = (max high, min low) `lookback` hari terakhir.
+
+    Dipakai untuk anchor breakout level (entry = resis + buffer). (0.0, 0.0) bila
+    tak ada data.
+    """
+    h = pd.Series(high).dropna().iloc[-lookback:]
+    l = pd.Series(low).dropna().iloc[-lookback:]
+    if h.empty or l.empty:
+        return 0.0, 0.0
+    return float(h.max()), float(l.min())
