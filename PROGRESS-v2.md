@@ -6,7 +6,8 @@
 > Setelah menyelesaikan satu fase: **centang tabel + tambah baris changelog**, lalu lapor ke user.
 
 - **Branch kerja:** `markup-radar-engine`
-- **HEAD:** `a442b53` (F3) — F1–F3 sudah **COMMITTED** (`0719766` F1, `b5e35b9` F2, `a442b53` F3). Belum di-push.
+- **HEAD:** `55416aa` (F6) — **F1–F6 sudah COMMITTED** (F1 `0719766`, F2 `b5e35b9`, F3 `a442b53`,
+  F4 `0e7d391`, F5 `6bcce33`, F6 `55416aa`). **Belum di-push** ke remote/VPS/cloud.
 - **Package:** `markup_radar` (JANGAN rename — spec §10)
 
 ---
@@ -81,8 +82,8 @@
 ## Catatan untuk sesi berikutnya
 
 - Memory anchor: `markup-radar-v2-progress` (di MEMORY.md) menunjuk ke file ini.
-- F1–F3 sudah di-commit di branch `markup-radar-engine` (belum di-push ke remote/VPS/cloud).
-- **F4+F5+F6 UNCOMMITTED** di working tree. F4: classifier.py, signals/__init__.py, score.py,
-  settings.yaml, test_classifier.py. F5: scripts/run_daily.py, tests/test_run_daily.py. F6:
-  alert/telegram.py, tests/test_alert.py (+tracker). Utang `score_weights` §4.7 sudah LUNAS.
+- **F1–F6 sudah di-commit** di branch `markup-radar-engine`. **Belum di-push** ke remote/VPS/cloud
+  (sesi di mesin lain / GH Actions belum lihat F1–F6 sampai di-push). Utang `score_weights` §4.7 LUNAS.
+- F7 (backtest) = fase berikutnya & terberat: replay regime-per-bar + `simulate_exit` SL-first +
+  NULL model random-entry. Lihat spec §5.
 - Spec lengkap per-file ada di `markup-radar-spec-2.md` §4 (modul), §6 (YAML), §7 (test DoD).
