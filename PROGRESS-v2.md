@@ -6,8 +6,8 @@
 > Setelah menyelesaikan satu fase: **centang tabel + tambah baris changelog**, lalu lapor ke user.
 
 - **Branch kerja:** `markup-radar-engine`
-- **HEAD:** `55416aa` (F6) — **F1–F6 sudah COMMITTED** (F1 `0719766`, F2 `b5e35b9`, F3 `a442b53`,
-  F4 `0e7d391`, F5 `6bcce33`, F6 `55416aa`). **Belum di-push** ke remote/VPS/cloud.
+- **HEAD:** `1e56340` (F7) — **F1–F7 sudah COMMITTED** (F1 `0719766`, F2 `b5e35b9`, F3 `a442b53`,
+  F4 `0e7d391`, F5 `6bcce33`, F6 `55416aa`, F7 `1e56340`). **Belum di-push** ke remote/VPS/cloud.
 - **Package:** `markup_radar` (JANGAN rename — spec §10)
 
 ---
@@ -90,8 +90,8 @@
 ## Catatan untuk sesi berikutnya
 
 - Memory anchor: `markup-radar-v2-progress` (di MEMORY.md) menunjuk ke file ini.
-- **F1–F6 sudah di-commit** di branch `markup-radar-engine`. **F7 UNCOMMITTED** (engine.py,
-  metrics.py, backtest/__init__.py, tests/test_backtest.py). **Semua belum di-push**.
+- **F1–F7 sudah di-commit** di branch `markup-radar-engine`. **Semua belum di-push** ke
+  remote/VPS/cloud (sesi mesin-lain / GH Actions belum lihat refactor v2 sampai di-push).
 - **F8 (TUNE) = fase terakhir & GERBANG sebelum live.** Jalankan spec §5 pada DATA NYATA via
   `scripts/backtest.py`: (1) tune `rvol_spike` per regime (fwd_close, horizon 20), (2) ablation RS
   (hit-rate BEARISH dengan vs tanpa gate), (3) `backtest_levels` vs `null_model` — level cuma layak
