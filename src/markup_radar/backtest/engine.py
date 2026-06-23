@@ -7,6 +7,7 @@ import pandas as pd
 from markup_radar.backtest.dataset import HistoricalDataset, _lookup
 from markup_radar.scoring import classify, confidence_markup_start
 from markup_radar.signals import StockData, compute_signals
+from markup_radar.signals.market import market_regime
 
 
 def _forward_returns(ohlcv: pd.DataFrame, i: int, horizon: int) -> dict[str, float]:
@@ -28,19 +29,27 @@ def replay(
     thresholds: dict,
     windows: dict,
     *,
+    regime_profiles: dict | None = None,
     top_n: int = 5,
-    horizon: int = 5,
+    horizon: int = 20,
     warmup: int = 20,
 ) -> pd.DataFrame:
     """Klasifikasikan tiap hari bursa lalu lampirkan forward return.
 
-    Mengembalikan DataFrame: date, code, state, confidence,
-    done_ratio, rvol, fwd_max, fwd_min, fwd_close.
+    Regime-aware (spec §5.1): per bar, resolve regime dari history IHSG SAMPAI
+    tanggal itu, pilih profil (`regime_profiles[regime]`), merge ke thresholds,
+    lalu classify dengan `eff`. `regime_profiles=None` -> profil kosong -> perilaku
+    identik backtest lama (backward-compatible). Default horizon 20 (bukan 5) —
+    edge swing cuma muncul di 10-20d (pelajaran 2026-06-21).
+
+    Mengembalikan DataFrame: date, code, state, regime, confidence,
+    done_ratio, rvol, relative_strength, fwd_max, fwd_min, fwd_close.
     """
     ohlcv = dataset.ohlcv
     if ohlcv.empty or len(ohlcv) <= warmup:
         return pd.DataFrame()
 
+    profiles = regime_profiles or {}
     rows = []
     for i in range(warmup, len(ohlcv)):
         date = ohlcv["date"].iloc[i]
@@ -61,8 +70,13 @@ def replay(
             ihsg_close=ihsg_hist,
         )
 
+        # Regime per-bar -> profil -> eff (sama mekanika dgn run_daily, tapi pakai
+        # history sampai tanggal ini saja: tak ada lookahead).
+        regime = market_regime(ihsg_hist, windows.get("ihsg_ma", 50))
+        eff = {**thresholds, **profiles.get(regime.value, {})}
+
         signals = compute_signals(data, thresholds, windows, top_n)
-        state = classify(signals, thresholds)
+        state = classify(signals, eff)
         conf = confidence_markup_start(signals, {})
         fwd = _forward_returns(ohlcv, i, horizon)
 
@@ -71,9 +85,11 @@ def replay(
                 "date": date,
                 "code": dataset.code,
                 "state": state,
+                "regime": regime.value,
                 "confidence": conf,
                 "done_ratio": round(signals["done_ratio"], 3),
                 "rvol": round(signals["rvol"], 2),
+                "relative_strength": round(signals.get("relative_strength", 0.0), 4),
                 **fwd,
             }
         )

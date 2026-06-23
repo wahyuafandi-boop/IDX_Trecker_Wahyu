@@ -22,15 +22,23 @@
 | **F4** | Classifier RS gate (opt-in via profil) + `relative_strength` wiring di `compute_signals` + score §4.7 | ✅ **DONE** 2026-06-23 | `test_classifier.py` (+regresi) |
 | **F5** | Integrasi `run_daily.py`: resolve regime → profil → classify → levels → record | ✅ **DONE** 2026-06-23 | `test_run_daily.py` 5 ✓ |
 | **F6** | Alert v2: `format_alert` render level + regime tag (HANYA state MARKUP_*) | ✅ **DONE** 2026-06-23 | `test_alert.py` 9 ✓ |
-| **F7** | Backtest regime-aware: `replay` regime-per-bar + `simulate_exit` (SL-first) + NULL model | ⬜ TODO | `test_backtest.py` |
+| **F7** | Backtest regime-aware: `replay` regime-per-bar + `simulate_exit` (SL-first) + NULL model | ✅ **DONE** 2026-06-23 | `test_backtest.py` 18 ✓ |
 | **F8** | **TUNE** (gate sebelum live): rvol per-regime, ablation RS, tentukan angka final di YAML | ⬜ TODO | — |
 
-**Full suite saat ini:** `144 passed`.
+**Full suite saat ini:** `155 passed`.
 
 ---
 
 ## Changelog
 
+- **2026-06-23 — F7 selesai.** Backtest regime-aware. `engine.replay`: param `regime_profiles`,
+  resolve regime per-bar dari IHSG-sampai-tanggal (no lookahead) → `eff` → classify; kolom baru
+  `regime`/`relative_strength`; default horizon 5→20. `metrics`: `simulate_exit` (SL-first
+  konservatif), `backtest_levels` (FILL realistis high≥entry + ongkos round-trip), `null_model`
+  (random-entry deterministik, apple-to-apple), `signal_indices` (jembatan replay→index).
+  `test_backtest.py` +11 (regime column, BEARISH allows outperformer, SL-first/TP/timeout, fill,
+  cost, null determinism). Backward-compat: `regime_profiles=None` → perilaku lama. Suite: 144 → 155.
+  *Catatan:* harga ditemui di metrics di-bangun untuk DIPAKAI F8 (belum dijalankan pada data nyata).
 - **2026-06-23 — F6 selesai.** `format_alert` v2: header dapat tag `· REGIME · RS ±x.x%`; baris
   `📍 Resis/Support/ATR` + `🎯 Entry/SL(−%)/TP(R:R)/~hold` HANYA saat `levels` ada (MARKUP_*);
   state lain (DISTRIBUTION/ACCUMULATION) tampil warning tanpa entry. Footer baru regime-aware.
@@ -82,8 +90,11 @@
 ## Catatan untuk sesi berikutnya
 
 - Memory anchor: `markup-radar-v2-progress` (di MEMORY.md) menunjuk ke file ini.
-- **F1–F6 sudah di-commit** di branch `markup-radar-engine`. **Belum di-push** ke remote/VPS/cloud
-  (sesi di mesin lain / GH Actions belum lihat F1–F6 sampai di-push). Utang `score_weights` §4.7 LUNAS.
-- F7 (backtest) = fase berikutnya & terberat: replay regime-per-bar + `simulate_exit` SL-first +
-  NULL model random-entry. Lihat spec §5.
+- **F1–F6 sudah di-commit** di branch `markup-radar-engine`. **F7 UNCOMMITTED** (engine.py,
+  metrics.py, backtest/__init__.py, tests/test_backtest.py). **Semua belum di-push**.
+- **F8 (TUNE) = fase terakhir & GERBANG sebelum live.** Jalankan spec §5 pada DATA NYATA via
+  `scripts/backtest.py`: (1) tune `rvol_spike` per regime (fwd_close, horizon 20), (2) ablation RS
+  (hit-rate BEARISH dengan vs tanpa gate), (3) `backtest_levels` vs `null_model` — level cuma layak
+  bila ngalahin random-entry setelah ongkos. Tulis angka final ke `settings.yaml`. Butuh kuota
+  Invezgo (cek [[invezgo-subscription]]).
 - Spec lengkap per-file ada di `markup-radar-spec-2.md` §4 (modul), §6 (YAML), §7 (test DoD).
