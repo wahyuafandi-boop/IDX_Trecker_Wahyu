@@ -87,14 +87,17 @@ levels:
   min_stop_pct: 0.03          # floor: SL tak pernah lebih ketat dari 3%
   hold_slack: 1.8             # faktor estimasi est_hold (harga tak gerak lurus)
 
-# Bobot confidence score MARKUP_START (total 100), lihat spec §4.
+# Bobot confidence score MARKUP_START (total 100), lihat spec §4/§4.7.
+# relative_strength (S10) ditambahkan; queue_imbalance & ihsg dipotong 10->5 agar
+# total tetap 100. Confidence = ordering alert (sekunder), boleh di-tune belakangan.
 score_weights:
   done_ratio: 25
   rvol: 20
   close_in_range: 15
   broker_streak: 20
-  queue_imbalance: 10
-  ihsg: 10
+  queue_imbalance: 5
+  ihsg: 5
+  relative_strength: 10
 
 # State yang dianggap actionable untuk dikirim ke alert.
 alert_states:

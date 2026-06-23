@@ -86,4 +86,8 @@ def compute_signals(
         "foreign_net": data.foreign_net_value,
         # S9
         "ihsg_above_ma50": market.ihsg_above_ma50(data.ihsg_close, w.get("ihsg_ma", 50)),
+        # S10 (nilai mentah; threshold/gate diterapkan di classifier per profil regime)
+        "relative_strength": market.relative_strength(
+            df["close"], data.ihsg_close, w.get("rs_window", 20)
+        ) if not df.empty else 0.0,
     }
