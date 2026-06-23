@@ -6,9 +6,8 @@
 > Setelah menyelesaikan satu fase: **centang tabel + tambah baris changelog**, lalu lapor ke user.
 
 - **Branch kerja:** `markup-radar-engine`
-- **HEAD:** `1e56340` (F7) — **F1–F7 COMMITTED** (F1 `0719766`..F7 `1e56340`). **F8 + 3 bugfix ingest
-  UNCOMMITTED** di working tree (dataset.py, ohlc_client.py, ihsg_client.py, _history.py baru,
-  test_ingest.py, settings.yaml, scripts/tune_f8.py + tracker). **Semua belum di-push.**
+- **HEAD:** `486318d` (F8) — **F1–F8 SEMUA COMMITTED & DI-PUSH** ke `origin/markup-radar-engine`
+  (2026-06-23; ingest bugfix `3cae3a9`, F8 `486318d`). Tree bersih.
 - **Package:** `markup_radar` (JANGAN rename — spec §10)
 - **REFACTOR v2 (F1–F8) SELESAI.** Verdict F8: pertahankan prior (data tipis). Engine belum
   live-ready dgn keyakinan statistik — butuh akumulasi sinyal forward dulu (lihat changelog F8).
@@ -114,7 +113,7 @@
 ## Catatan untuk sesi berikutnya
 
 - Memory anchor: `markup-radar-v2-progress` (di MEMORY.md) menunjuk ke file ini.
-- **F1–F8 SELESAI.** F1–F7 di-commit; **F8 + 3 bugfix ingest belum di-commit, semua belum di-push.**
+- **F1–F8 SELESAI, semua DI-COMMIT & DI-PUSH** ke `origin/markup-radar-engine` (HEAD `486318d`).
 - **Langkah lanjut (BUKAN refactor lagi — soal data/validasi):**
   1. **Commit + push** kerjaan F8 (ingest fixes + tune script + YAML) ke `markup-radar-engine`.
   2. **Kumpulkan sinyal forward** dulu sebelum nge-tune final: jalankan EOD harian (sudah mirror ke
