@@ -6,7 +6,7 @@
 > Setelah menyelesaikan satu fase: **centang tabel + tambah baris changelog**, lalu lapor ke user.
 
 - **Branch kerja:** `markup-radar-engine`
-- **HEAD:** `c9d0209` (docs: add v2 spec) — *kerjaan F1–F2 di bawah masih UNCOMMITTED di working tree.*
+- **HEAD:** `a442b53` (F3) — F1–F3 sudah **COMMITTED** (`0719766` F1, `b5e35b9` F2, `a442b53` F3). Belum di-push.
 - **Package:** `markup_radar` (JANGAN rename — spec §10)
 
 ---
@@ -59,8 +59,7 @@
 ## Catatan untuk sesi berikutnya
 
 - Memory anchor: `markup-radar-v2-progress` (di MEMORY.md) menunjuk ke file ini.
-- Belum di-commit: F1 (market.py, price_volume.py, test_signals.py) + F2 (levels.py, test_levels.py)
-  + F3 (settings.yaml, config.py, test_config.py) + PROGRESS-v2.md. Commit kapan user minta.
+- F1–F3 sudah di-commit di branch `markup-radar-engine` (belum di-push ke remote/VPS/cloud).
 - **Utang teknis F4:** rebalance `score_weights` (queue_imbalance 10→5, ihsg 10→5, +relative_strength 10)
   HARUS barengan edit `score.py` §4.7 (tambah norm `relative_strength`), kalau tidak total bobot ≠ 100.
 - Spec lengkap per-file ada di `markup-radar-spec-2.md` §4 (modul), §6 (YAML), §7 (test DoD).
