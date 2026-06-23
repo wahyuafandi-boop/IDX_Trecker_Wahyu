@@ -8,10 +8,10 @@
 # mudah di-mainkan) → sinyal cenderung lebih banyak/bising. Pakai sebagai
 # pengamatan forward (size kecil) sampai data live cukup untuk tune ulang.
 watchlist:
-  - DATA
+  - KOCI
   - JARR
   - VERN
-  - ATAP
+  - PPRE
   - ESIP
 
 # Window perhitungan rolling.
