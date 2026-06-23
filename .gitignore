@@ -5,6 +5,13 @@
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/*.out
+
+# Watchlist harian (paste hasil screener Stockbit; berubah tiap hari)
+watchlist_today.txt
+
+# Log run (cron VPS)
+logs/
 
 # Python
 __pycache__/

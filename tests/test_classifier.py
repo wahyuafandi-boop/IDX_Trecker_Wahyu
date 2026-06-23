@@ -61,6 +61,41 @@ def test_markup_not_vetoed_by_bearish_ihsg_but_lower_confidence():
     assert confidence_markup_start(bear) < confidence_markup_start(bull)
 
 
+# ---- S10 Relative Strength gate (opt-in via profil regime, spec §4.6) ----
+def _bearish_eff(**over):
+    """Threshold ala profil BEARISH ter-merge: RS wajib + rvol dinaikkan."""
+    t = {"require_relative_strength": True, "rs_min": 0.0, "rvol_spike": 2.5}
+    t.update(over)
+    return t
+
+
+def test_bearish_blocks_markup_when_underperform():
+    # done/rvol/cir/streak semua lolos, TAPI saham underperform IHSG (rs < rs_min)
+    # di regime BEARISH → RS gate memblok → NEUTRAL, bukan MARKUP.
+    s = _base(done_ratio=0.68, rvol=2.6, close_in_range=0.8,
+              broker_net_buy_streak=3, queue_imbalance=0.0, relative_strength=-0.02)
+    assert classify(s, _bearish_eff()) == "NEUTRAL"
+
+
+def test_bearish_allows_markup_when_outperform():
+    # Sama persis tapi outperform (rs > rs_min) → lolos gate → MARKUP_START.
+    s = _base(done_ratio=0.68, rvol=2.6, close_in_range=0.8,
+              broker_net_buy_streak=3, queue_imbalance=0.0, relative_strength=0.03)
+    assert classify(s, _bearish_eff()) == "MARKUP_START"
+
+
+def test_rs_gate_noop_when_not_required_backward_compat():
+    # Regresi backward-compat: tanpa profil (require_relative_strength absent/False),
+    # klausa RS tak berpengaruh — bahkan rs sangat negatif tetap MARKUP_START.
+    s = _base(done_ratio=0.68, rvol=2.3, close_in_range=0.8,
+              broker_net_buy_streak=3, queue_imbalance=0.0, relative_strength=-0.5)
+    assert classify(s) == "MARKUP_START"
+    # rs absent sama sekali → identik (klausa no-op).
+    s2 = _base(done_ratio=0.68, rvol=2.3, close_in_range=0.8,
+               broker_net_buy_streak=3, queue_imbalance=0.0)
+    assert classify(s2) == "MARKUP_START"
+
+
 def test_accumulation_via_absorption():
     s = _base(absorption_flag=True)
     assert classify(s) == "ACCUMULATION_ONGOING"
@@ -85,8 +120,11 @@ def test_insufficient_data():
 
 
 def test_confidence_high_for_strong_markup():
+    # "Strong" kini termasuk outperform IHSG (relative_strength) sejak bobot S10
+    # masuk score (spec §4.7) — perfect score butuh komponen RS juga.
     s = _base(done_ratio=0.8, rvol=3.0, close_in_range=1.0,
-              broker_net_buy_streak=5, queue_imbalance=2.0, ihsg_above_ma50=True)
+              broker_net_buy_streak=5, queue_imbalance=2.0, ihsg_above_ma50=True,
+              relative_strength=0.10)
     assert confidence_markup_start(s) == 100
 
 

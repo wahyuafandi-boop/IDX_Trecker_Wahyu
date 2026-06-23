@@ -37,19 +37,46 @@ def format_alert(date: str, items: list[dict]) -> str:
     for it in items:
         s = it.get("signals", {})
         emoji = _EMOJI.get(it["state"], "•")
-        lines.append(
+
+        # Header: kode — state (conf N) [· REGIME] [· RS ±x.x%].
+        head = (
             f"{emoji} <b>{html.escape(str(it['code']))}</b> — "
-            f"{html.escape(str(it['state']))} ({it.get('confidence', 0)})\n"
+            f"{html.escape(str(it['state']))} (conf {it.get('confidence', 0)})"
+        )
+        if it.get("regime"):
+            head += f" · {html.escape(str(it['regime']))}"
+        if "relative_strength" in it:
+            head += f" · RS {it['relative_strength']:+.1%}"
+        lines.append(head)
+
+        # Baris sinyal dasar.
+        lines.append(
             f"   done {s.get('done_ratio', 0):.2f} · "
             f"RVOL {s.get('rvol', 0):.1f}x · "
             f"close {s.get('close_in_range', 0):.2f} · "
-            f"broker streak {s.get('broker_net_buy_streak', 0)}"
+            f"streak {s.get('broker_net_buy_streak', 0)}"
         )
+
+        # Baris level — HANYA untuk MARKUP_* (levels terisi; spec D5/§4.8). State lain
+        # (ACCUMULATION/DISTRIBUTION) -> levels None -> tampil tanpa entry.
+        lv = it.get("levels")
+        if lv:
+            lines.append(
+                f"   📍 Resis {lv['resistance']:g} · Support {lv['support']:g} · "
+                f"ATR {lv['atr']:g}"
+            )
+            lines.append(
+                f"   🎯 Entry &gt;{lv['entry']:g} · "
+                f"SL {lv['stop_loss']:g} (-{lv['stop_pct']:.1%}) · "
+                f"TP {lv['take_profit']:g} (R:R {lv['rr_realized']:.1f}) · "
+                f"~hold {lv['est_hold_days']}d"
+            )
+
         if it.get("narrative"):
             lines.append(f"   <i>{html.escape(str(it['narrative']))}</i>")
     lines.append("")
-    lines.append("<i>Setup swing 2–4 minggu (horizon 10–20 hari), bukan entry "
-                 "intraday. Konfirmasi & kelola risiko sendiri.</i>")
+    lines.append("<i>Setup swing 10–20 hari (regime-aware). Entry = breakout "
+                 "terkonfirmasi, bukan harga sekarang. Kelola risiko sendiri.</i>")
     return "\n".join(lines)
 
 

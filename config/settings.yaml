@@ -17,8 +17,10 @@ watchlist:
 # Window perhitungan rolling.
 windows:
   volume_ma: 20        # MA20 untuk RVOL (S6)
-  ihsg_ma: 50          # MA50 IHSG (S9)
+  ihsg_ma: 50          # MA50 IHSG (S9) + regime selector (BULLISH/BEARISH)
   broker_streak_lookback: 5  # berapa hari ke belakang untuk net-buy streak (S3)
+  rs_window: 20        # S10 relative strength (return saham - return IHSG)
+  donchian_lookback: 20  # resis/support untuk trade levels (entry/SL/TP)
 
 # Top-N broker untuk net flow & concentration (S3, S4).
 broker:
@@ -46,18 +48,63 @@ thresholds:
                               # LIVE-only (order book tak historis → backtest S5=0,
                               # CONFIRMED tak muncul). Tune 1.0–1.2 setelah data live
                               # terkumpul; >1.0 = butuh demand antri lebih dominan.
+  queue_top_levels: 4         # S5 live: jumlah baris bid/offer "nyata" yg dibaca
+                              # (bandarmologi: 4 teratas; level dalam sering diada-ada).
+  queue_bigmoney_lot_per_order: 20  # S5 live: lot/order (lot/freq) top-N >= ini =
+                              # sidik jari big money (order gede / lot seragam). Ritel =
+                              # order kecil acak (lpo rendah). Price-dependent → tune
+                              # setelah lihat data live (jalankan live_watch --probe).
+  queue_wall_pull_drop: 0.35  # S5 live: tembok offer mengecil >= 35% antar-siklus =
+                              # dicabut/dimakan ('v') → sering pemicu jebol (entry).
   absorption_min_rvol: 1.5    # S2: butuh volume "tinggi"
   broker_net_buy_streak_min: 3  # ACCUMULATION_ONGOING
   near_range_high: 0.80       # DISTRIBUTION_WARNING
 
-# Bobot confidence score MARKUP_START (total 100), lihat spec §4.
+# Profil regime: overlay thresholds yang dipilih IHSG vs MA50 (spec §4.5/§6).
+# Dipakai: eff = {**thresholds, **regime_profiles[regime]} -> classify(signals, eff).
+#
+# F8 TUNE 2026-06-23 (scripts/tune_f8.py; AVIA TPIA BULL HEAL MAPA BREN PTRO, 2024-06..2026-06):
+# Backtest dijalankan, TAPI sinyal MARKUP terlalu sedikit untuk tuning yang meyakinkan
+# (BULLISH n~5-28 across grid; BEARISH n~1-5). hit_rate@fwd_close+5%/20d: BULLISH 17-29%
+# (TIDAK naik dgn rvol -> bukan edge jelas, kemungkinan noise), BEARISH 0% (n<=5). Ablation RS
+# inconclusive (n=1 vs 2). Levels>null directional positif tapi didorong 1 trade (BULL +31%).
+# KEPUTUSAN: PERTAHANKAN prior (jangan overfit noise / longgarkan rvol di bear — spec §2/§10).
+# Angka di bawah = prior spec, SUDAH dicek empiris (bukan lagi tebakan buta); belum "final" sampai
+# cukup sinyal forward terkumpul (mirror Sheets) utk tune dgn n memadai + base-rate NEUTRAL.
+regime_profiles:
+  BULLISH:
+    rvol_spike: 2.0           # F8: tetap (1.5 naikin hit in-sample tapi overfit; spec lipat selektif)
+    require_relative_strength: false
+    rs_min: 0.0
+    atr_mult_sl: 2.0
+    rr_target: 2.0
+    risk_per_trade: 0.01      # metadata (engine tak eksekusi)
+  BEARISH:
+    rvol_spike: 2.5           # NAIK di market lemah, bukan turun (F8: tetap; n bear terlalu kecil)
+    require_relative_strength: true   # F8: ablation inconclusive (n=1v2) -> KEEP (default selektif)
+    rs_min: 0.0               # >0 = harus outperform; 0 = minimal seimbang dgn IHSG
+    atr_mult_sl: 1.8
+    rr_target: 2.0
+    risk_per_trade: 0.005     # potong setengah
+
+# Param trade levels (default lintas regime; atr_mult_sl & rr_target diambil dari profil).
+levels:
+  breakout_buffer: 0.005      # 0.5% di atas resis = konfirmasi jebol
+  atr_period: 14
+  min_stop_pct: 0.03          # floor: SL tak pernah lebih ketat dari 3%
+  hold_slack: 1.8             # faktor estimasi est_hold (harga tak gerak lurus)
+
+# Bobot confidence score MARKUP_START (total 100), lihat spec §4/§4.7.
+# relative_strength (S10) ditambahkan; queue_imbalance & ihsg dipotong 10->5 agar
+# total tetap 100. Confidence = ordering alert (sekunder), boleh di-tune belakangan.
 score_weights:
   done_ratio: 25
   rvol: 20
   close_in_range: 15
   broker_streak: 20
-  queue_imbalance: 10
-  ihsg: 10
+  queue_imbalance: 5
+  ihsg: 5
+  relative_strength: 10
 
 # State yang dianggap actionable untuk dikirim ke alert.
 alert_states:

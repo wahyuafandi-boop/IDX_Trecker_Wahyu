@@ -7,8 +7,9 @@ _DEFAULT_WEIGHTS = {
     "rvol": 20,
     "close_in_range": 15,
     "broker_streak": 20,
-    "queue_imbalance": 10,
-    "ihsg": 10,
+    "queue_imbalance": 5,        # turun 10->5: ruang untuk relative_strength
+    "ihsg": 5,                   # turun 10->5: idem (total tetap 100)
+    "relative_strength": 10,     # S10 (informatif di dua regime)
 }
 
 
@@ -32,6 +33,7 @@ def confidence_markup_start(signals: dict, weights: dict | None = None) -> int:
         "broker_streak": _clamp01(s.get("broker_net_buy_streak", 0) / 5.0),    # 5 hari -> 1
         "queue_imbalance": _clamp01(s.get("queue_imbalance", 0.0) / 2.0),      # 2x -> 1
         "ihsg": 1.0 if s.get("ihsg_above_ma50", False) else 0.0,
+        "relative_strength": _clamp01(s.get("relative_strength", 0.0) / 0.10),  # +10% outperf -> 1.0
     }
 
     score = sum(w[k] * norm[k] for k in w)
