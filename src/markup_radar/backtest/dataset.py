@@ -92,11 +92,20 @@ def load_history(
     # --- Broker daily net — join BY-DATE pakai tanggal asli broker.
     # Hindari align positional `ohlcv["date"][-len(net):]` yang rapuh: date-set
     # broker bisa beda dari OHLCV (ValueError saat lebih panjang / mislabel hari).
+    # PENTING (F8 2026-06-23): endpoint inventory mengembalikan EMPTY (bukan 422)
+    # bila `from` < horizon data broker. Pakai awal OHLCV (yang sudah self-bounded
+    # ke histori tersedia) sebagai batas bawah, supaya broker net historis terisi
+    # (bukan cuma ~recent) → streak S3 jalan → MARKUP bisa ter-backtest.
+    broker_from = date_from
+    if not ohlcv.empty:
+        # ohlcv["date"] bisa string (path cache) atau datetime (path API) -> coerce.
+        oh_start = pd.Timestamp(ohlcv["date"].min())
+        broker_from = max(pd.Timestamp(date_from), oh_start).strftime("%Y-%m-%d")
     if cache is None:
-        dated = fetch_broker_daily_net_dated(client, code, date_from, date_to)
+        dated = fetch_broker_daily_net_dated(client, code, broker_from, date_to)
         broker_df = pd.DataFrame(dated, columns=["date", "net"]) if dated else pd.DataFrame()
     else:
-        for mf, mt in cache.missing_ranges("broker_net", code, date_from, date_to):
+        for mf, mt in cache.missing_ranges("broker_net", code, broker_from, date_to):
             dated = fetch_broker_daily_net_dated(client, code, mf, mt)
             if dated:
                 cache.put_broker_net(code, pd.DataFrame(dated, columns=["date", "net"]))

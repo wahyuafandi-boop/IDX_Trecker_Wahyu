@@ -1,19 +1,18 @@
 """Normalisasi OHLCV harian (S6 RVOL, S7 close-in-range).
 
-Catatan kapasitas: endpoint `stock_chart` Invezgo membatasi ~6 bln (~120 hari
-bursa) per request, mengembalikan jendela TERAKHIR yang berakhir di `to`
-(parameter `from` efektif diabaikan bila rentang > cap). Untuk backtest panjang,
-`fetch_ohlcv` menarik per-chunk dengan `to` digeser mundur lalu di-stitch.
-Tanggal Invezgo berupa UTC midnight ('...T00:00:00.000Z') -> dinormalisasi ke
-tz-naive (tanpa pergeseran tanggal).
+Catatan kapasitas: endpoint `stock_chart` Invezgo membatasi ~6 bln per request.
+Rentang terlalu lebar -> HTTP 422 (Unprocessable Entity), BUKAN auto-truncate
+(diverifikasi 2026-06-23 saat F8: from=2024..to=2026 -> 422). Maka `fetch_ohlcv`
+menarik per-chunk dengan JENDELA TERBATAS (`from` = `to` - window_days, bukan
+date_from asli) lalu menggeser `to` mundur & men-stitch. Tanggal Invezgo berupa
+UTC midnight ('...T00:00:00.000Z') -> dinormalisasi ke tz-naive (tanpa geser tanggal).
 """
 
 from __future__ import annotations
 
-import sys
-
 import pandas as pd
 
+from markup_radar.ingest._history import fetch_windowed
 from markup_radar.ingest.client import InvezgoClient
 
 _COLS = ["date", "open", "high", "low", "close", "volume"]
@@ -58,43 +57,19 @@ def _fetch_ohlcv_chunk(client: InvezgoClient, code: str, date_from: str, date_to
 
 
 def fetch_ohlcv(
-    client: InvezgoClient, code: str, date_from: str, date_to: str, *, max_chunks: int = 12
+    client: InvezgoClient,
+    code: str,
+    date_from: str,
+    date_to: str,
+    *,
+    max_chunks: int = 24,
+    window_days: int = 120,
 ) -> pd.DataFrame:
-    """Tarik OHLCV harian [date_from..date_to], stitch antar-chunk bila perlu.
-
-    Rentang <= cap server cukup 1 call. Untuk rentang panjang, `to` digeser ke
-    sebelum tanggal terawal chunk sebelumnya sampai mencapai `date_from`,
-    chunk kosong, atau tak ada progres mundur (guard anti-loop, max_chunks).
-    """
-    frm = pd.Timestamp(date_from)
-    to_ts = pd.Timestamp(date_to)
-    to = date_to
-    chunks: list[pd.DataFrame] = []
-    prev_min: pd.Timestamp | None = None
-
-    for _ in range(max_chunks):
-        chunk = _fetch_ohlcv_chunk(client, code, date_from, to)
-        if chunk.empty:
-            break
-        chunks.append(chunk)
-        cmin = chunk["date"].min()
-        if cmin <= frm:
-            break  # sudah mencakup date_from
-        if prev_min is not None and cmin >= prev_min:
-            break  # tak ada progres mundur -> hindari loop tak berujung
-        prev_min = cmin
-        to = (cmin - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    else:
-        # Loop habis tanpa break = max_chunks tercapai sebelum mencapai date_from.
-        # Jangan truncate diam-diam; histori bisa tak lengkap di sisi awal.
-        if chunks:
-            print(f"[WARN] fetch_ohlcv {code}: rentang melebihi {max_chunks} chunk; "
-                  f"histori terpotong di {chunks[-1]['date'].min().date()} "
-                  f"(diminta dari {date_from}).", file=sys.stderr)
-
-    if not chunks:
-        return pd.DataFrame(columns=_COLS)
-
-    df = pd.concat(chunks, ignore_index=True).drop_duplicates("date")
-    df = df.sort_values("date").reset_index(drop=True)
-    return df[(df["date"] >= frm) & (df["date"] <= to_ts)].reset_index(drop=True)
+    """Tarik OHLCV harian [date_from..date_to], stitch antar-chunk via fetch_windowed
+    (jendela <= window_days < cap server ~6 bln; degrade rapi di horizon histori)."""
+    return fetch_windowed(
+        lambda f, t: _fetch_ohlcv_chunk(client, code, f, t),
+        date_from, date_to,
+        label=f"fetch_ohlcv {code}", columns=_COLS,
+        max_chunks=max_chunks, window_days=window_days,
+    )

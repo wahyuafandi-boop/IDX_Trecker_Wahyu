@@ -283,9 +283,10 @@ def test_fetch_ohlcv_single_call_when_within_cap():
     assert df["date"].max() == pd.Timestamp("2026-06-19")
 
 
-def test_fetch_ohlcv_no_progress_guard_terminates():
-    # Server "macet": abaikan `to`, selalu balikin window 2026 yang sama -> tak
-    # pernah mundur lewat date_from. Guard no-progress harus hentikan, bukan loop.
+def test_fetch_ohlcv_windowed_terminates_with_bounded_calls():
+    # Server cuma punya data 2026 (abaikan `to`). Pendekatan berjendela menggeser
+    # `to` mundur per window sampai date_from lalu BERHENTI — jumlah call terbatas
+    # (~rentang/window), tak sampai max_chunks, dan coverage parsial benar.
     class StuckClient:
         def __init__(self):
             self.calls = 0
@@ -297,10 +298,41 @@ def test_fetch_ohlcv_no_progress_guard_terminates():
                      "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100} for d in ds]
 
     c = StuckClient()
-    df = fetch_ohlcv(c, "X", "2025-01-01", "2026-06-19")  # minta dari 2025; server cuma 2026
-    assert c.calls <= 3                       # guard hentikan, tak sampai max_chunks
+    df = fetch_ohlcv(c, "X", "2025-01-01", "2026-06-19")  # ~534 hari / window 120 ≈ 5 chunk
+    assert c.calls <= 7                       # terbatas (rentang/window), bukan loop
     assert df["date"].min() == pd.Timestamp("2026-01-01")  # coverage parsial yang benar
     assert df["date"].max() == pd.Timestamp("2026-06-19")
+
+
+def test_fetch_ohlcv_degrades_at_history_boundary():
+    # Regresi F8 (2026-06-23): endpoint chart 422 saat `from` lewat horizon histori
+    # (~2 thn) atau saham belum listing. Chunk gagal TIDAK membatalkan seluruh fetch:
+    # kembalikan histori yang tersedia, berhenti rapi.
+    from markup_radar.ingest.client import InvezgoError
+
+    class BoundedClient:
+        """Punya data hanya sejak `boundary`; request dgn `from` < boundary -> 422."""
+
+        def __init__(self, boundary, end):
+            self.boundary = pd.Timestamp(boundary)
+            self.universe = pd.bdate_range(boundary, end)
+            self.calls = 0
+
+        def stock_chart(self, code, date_from, date_to):
+            self.calls += 1
+            if pd.Timestamp(date_from) < self.boundary:
+                raise InvezgoError("422 Unprocessable Entity")
+            avail = self.universe[self.universe <= pd.Timestamp(date_to)]
+            return [{"date": d.strftime("%Y-%m-%dT00:00:00.000Z"),
+                     "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 100}
+                    for d in avail[-120:]]
+
+    c = BoundedClient("2024-10-01", "2026-06-19")
+    df = fetch_ohlcv(c, "X", "2024-01-01", "2026-06-19")   # minta sebelum boundary
+    assert not df.empty                                     # tak hilang semua gara-gara 422
+    assert df["date"].min() >= pd.Timestamp("2024-10-01")   # cuma sejauh data tersedia
+    assert df["date"].max() == pd.Timestamp("2026-06-19")
+    assert df["date"].is_monotonic_increasing
 
 
 def test_fetch_ohlcv_empty_when_no_data():
