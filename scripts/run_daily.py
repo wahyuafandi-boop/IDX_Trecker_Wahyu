@@ -37,6 +37,8 @@ from markup_radar.ingest.ohlc_client import fetch_ohlcv
 from markup_radar.narrative import generate_narrative
 from markup_radar.scoring import classify, confidence_markup_start
 from markup_radar.signals import StockData, compute_signals
+from markup_radar.signals.levels import compute_trade_levels
+from markup_radar.signals.market import market_regime
 from markup_radar.store import Store, build_sink
 
 
@@ -83,6 +85,32 @@ def build_stock_data(
         closing_offer_volume=queue["offer_volume"],
         ihsg_close=ihsg_close,
     )
+
+
+def evaluate(data: StockData, signals: dict, cfg, eff: dict):
+    """Klasifikasi + confidence + trade levels untuk satu saham (pure, tanpa network).
+
+    `eff` = thresholds dasar + overlay profil regime (di-resolve sekali per run di
+    main()). Trade levels HANYA dihitung untuk state MARKUP_* (spec D5); state lain
+    -> None. atr_mult_sl & rr_target diambil dari profil (`eff`), sisanya dari
+    blok `levels` config.
+    """
+    state = classify(signals, eff)
+    conf = confidence_markup_start(signals, cfg.score_weights)
+    levels = None
+    if state in ("MARKUP_START", "MARKUP_CONFIRMED"):
+        lv = cfg.levels
+        levels = compute_trade_levels(
+            data.ohlcv,
+            lookback=cfg.windows.get("donchian_lookback", 20),
+            atr_period=lv.get("atr_period", 14),
+            breakout_buffer=lv.get("breakout_buffer", 0.005),
+            atr_mult_sl=eff.get("atr_mult_sl", 2.0),
+            rr_target=eff.get("rr_target", 2.0),
+            min_stop_pct=lv.get("min_stop_pct", 0.03),
+            hold_slack=lv.get("hold_slack", 1.8),
+        )
+    return state, conf, levels
 
 
 def main() -> int:
@@ -155,6 +183,15 @@ def main() -> int:
     ihsg = fetch_ihsg(client, *_date_range(date, cfg.windows.get("ihsg_ma", 50) * 2))
     ihsg_close = ihsg["close"] if not ihsg.empty else None
 
+    # Regime selector (spec §4.6): IHSG vs MA -> profil parameter, di-resolve SEKALI
+    # per run. eff = thresholds dasar + overlay profil regime (rvol/RS-gate/SL/RR).
+    # Fail-safe: IHSG kosong -> market_regime balik BEARISH (profil lebih ketat).
+    regime = market_regime(ihsg_close, cfg.windows.get("ihsg_ma", 50))
+    eff = {**cfg.thresholds, **cfg.regime_profiles.get(regime.value, {})}
+    print(f"[info] regime: {regime.value} "
+          f"(rvol_spike={eff.get('rvol_spike')}, "
+          f"require_rs={eff.get('require_relative_strength', False)})", file=sys.stderr)
+
     scan_log: list[dict] = []   # SEMUA kode (termasuk NEUTRAL) untuk mirror Sheets
     actionable: list[dict] = []
     for code in cfg.watchlist:
@@ -163,18 +200,21 @@ def main() -> int:
                 client, code, date, cfg, ihsg_close=ihsg_close,
             )
             signals = compute_signals(data, cfg.thresholds, cfg.windows, cfg.broker_top_n)
-            state = classify(signals, cfg.thresholds)
-            conf = confidence_markup_start(signals, cfg.score_weights)
+            state, conf, levels = evaluate(data, signals, cfg, eff)
         except Exception as exc:  # noqa: BLE001 — jangan gagalkan seluruh batch
             print(f"[WARN] {code}: {exc}", file=sys.stderr)
             continue
 
         store.save_result(scan_date_str, code, state, conf, signals)
-        print(f"{code:6s} {state:22s} conf={conf}")
+        rs = signals.get("relative_strength", 0.0)
+        print(f"{code:6s} {state:22s} conf={conf} RS={rs:+.2%}")
 
         record = {
             "date": scan_date_str, "code": code, "state": state,
             "confidence": conf, "signals": signals, "narrative": "",
+            "regime": regime.value,
+            "relative_strength": round(rs, 4),
+            "levels": levels.as_dict() if levels else None,
         }
         if state in cfg.alert_states:
             if narrative_cfg.get("enabled"):
