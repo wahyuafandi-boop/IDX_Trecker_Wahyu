@@ -138,3 +138,23 @@ sheets:
   enabled: true
   spreadsheet_id: ""     # isi ID Google Sheet tujuan (dari URL .../d/<ID>/edit)
   worksheet: signals
+
+# Auto-screener: refresh watchlist_today.txt dari Invezgo (POST /screener/screen).
+# Dijalankan run_screen.sh di VPS sebelum run_eod.sh.
+#
+# CATATAN PENTING (diverifikasi via probe live API 2026-06-25):
+#  - category "COMPOSITE" balik KOSONG di endpoint screener. Universe penuh
+#    (~900 saham) diperoleh dari gabungan 11 kategori sektor IDX di bawah.
+#  - Engine formula screener TIDAK punya fungsi indikator: ema()/sma() -> HTTP 400
+#    "Unknown function". Bahasa formula hanya variabel skalar per-saham (close,
+#    value, volume, open, high, low, change, + rasio fundamental: per, eps, roa,
+#    dst) + operator 'and'/'or' (BUKAN '&&'). Jadi screener = filter likuiditas/
+#    harga kasar; deteksi RVOL-spike & tren (S6/S7) TETAP dikerjakan run_daily.py
+#    atas watchlist hasil screen ini (separasi tugas, bukan kehilangan logika).
+#  - 'close > 100 and value > 3000000000' -> ~178 saham likuid (value harian >3M).
+#    max_watchlist memotongnya; perketat 'value' atau naikkan cap untuk tuning jumlah.
+screener:
+  enabled: true
+  category: ["IDXENERGY", "IDXBASIC", "IDXINDUST", "IDXNONCYC", "IDXCYCLIC", "IDXHEALTH", "IDXFINANCE", "IDXPROPERT", "IDXTECHNO", "IDXINFRA", "IDXTRANS"]
+  max_watchlist: 50            # cap jumlah kode (kontrol kuota; run_eod ~4-5 call/saham)
+  formula: 'close > 100 and value > 3000000000'   # likuiditas/harga; indikator dihandle EOD engine
