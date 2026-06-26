@@ -10,6 +10,9 @@ data/*.out
 # Watchlist harian (paste hasil screener Stockbit; berubah tiap hari)
 watchlist_today.txt
 
+# Subset kode live-watch (top-N setup MARKUP dari scan EOD; di-generate run_daily)
+live_today.txt
+
 # Log run (cron VPS)
 logs/
 

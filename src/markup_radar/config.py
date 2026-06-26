@@ -114,6 +114,12 @@ class Settings:
     def sheets(self) -> dict[str, Any]:
         return dict(self.raw.get("sheets", {}))
 
+    @property
+    def live_watch(self) -> dict[str, Any]:
+        """Param subset kode live-watch (dipilih dari hasil scan EOD): max_codes,
+        include_states, out_file. Dipakai run_daily -> live_today.txt -> run_live."""
+        return dict(self.raw.get("live_watch", {}))
+
 
 def load_settings(path: str | Path = DEFAULT_SETTINGS) -> Settings:
     """Baca settings.yaml lalu overlay kredensial dari environment."""

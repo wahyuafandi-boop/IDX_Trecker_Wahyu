@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 # Izinkan import 'markup_radar' tanpa install (src layout).
@@ -45,6 +47,54 @@ from markup_radar.store import Store, build_sink
 def _date_range(end: dt.date, days_back: int) -> tuple[str, str]:
     start = end - dt.timedelta(days=days_back)
     return start.isoformat(), end.isoformat()
+
+
+def _write_live_codes(actionable: list[dict], cfg, *, dry_run: bool) -> list[str]:
+    """Pilih subset kode untuk live-watch besok pagi dari hasil scan EOD.
+
+    Ambil setup MARKUP (CONFIRMED + START) — kandidat entry yang perlu konfirmasi
+    order book live — urut confidence tertinggi (CONFIRMED cenderung naik sendiri
+    karena conf-nya tinggi), lalu cap `max_codes`. Tulis atomik ke `live_today.txt`
+    supaya run_live.sh polling FOKUS ke setup terbaik, bukan seluruh universe 50 kode
+    (hemat ~80% kuota live tanpa kehilangan nilai trading).
+
+    File SELALU ditulis (mencerminkan setup malam ini): nol setup -> file hanya header
+    (tanpa kode) -> run_live besok tak punya kode -> exit cepat (0 call). Dilewati
+    saat dry-run agar file produksi tak terkotori data uji.
+    """
+    lw = cfg.live_watch
+    states = set(lw.get("include_states", ["MARKUP_CONFIRMED", "MARKUP_START"]))
+    max_codes = int(lw.get("max_codes", 5))
+    out_path = Path(lw.get("out_file", "live_today.txt"))
+
+    picks = [r for r in actionable if r.get("state") in states]
+    picks.sort(key=lambda r: r.get("confidence", 0), reverse=True)
+    codes = [r["code"] for r in picks[:max_codes]]
+
+    print(f"[info] live-watch besok ({len(codes)}/{max_codes} kode): "
+          f"{', '.join(codes) or '(kosong)'}", file=sys.stderr)
+    if dry_run:
+        print("[info] dry-run: live_today.txt tidak ditulis.", file=sys.stderr)
+        return codes
+
+    header = (
+        f"# auto-generated oleh run_daily.py @ "
+        f"{dt.datetime.now().isoformat(timespec='seconds')}\n"
+        f"# {len(codes)} kode live-watch (top {max_codes} by confidence "
+        f"dari {len(actionable)} actionable)\n"
+    )
+    body = ("\n".join(codes) + "\n") if codes else ""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(out_path.parent), prefix=".live_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(header + body)
+        os.replace(tmp, out_path)  # atomic: tak ada file separuh
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    print(f"[OK] {len(codes)} kode live ditulis ke {out_path}", file=sys.stderr)
+    return codes
 
 
 def build_stock_data(
@@ -235,6 +285,11 @@ def main() -> int:
             print("\n[OK] alert terkirim ke Telegram.")
         except Exception as exc:  # noqa: BLE001
             print(f"\n[WARN] gagal kirim Telegram: {exc}", file=sys.stderr)
+
+    # Daftar kode live-watch besok pagi (subset setup MARKUP terbaik, top-N by
+    # confidence) -> live_today.txt. Dipakai run_live.sh agar polling fokus & hemat
+    # kuota (bukan 50 kode penuh). Ditulis dari hasil scan ini; dilewati saat dry-run.
+    _write_live_codes(actionable, cfg, dry_run=args.dry_run)
 
     # Mirror histori ke Sheets — dilewati saat dry-run agar sheet tak terkotori
     # baris uji. SQLite lokal tetap menyimpan (audit), Sheets = histori lintas run.
