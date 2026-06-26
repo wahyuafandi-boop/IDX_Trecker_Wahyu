@@ -158,3 +158,13 @@ screener:
   category: ["IDXENERGY", "IDXBASIC", "IDXINDUST", "IDXNONCYC", "IDXCYCLIC", "IDXHEALTH", "IDXFINANCE", "IDXPROPERT", "IDXTECHNO", "IDXINFRA", "IDXTRANS"]
   max_watchlist: 50            # cap jumlah kode (kontrol kuota; run_eod ~4-5 call/saham)
   formula: 'close > 100 and value > 3000000000'   # likuiditas/harga; indikator dihandle EOD engine
+
+# Live-watch fokus: dari hasil scan EOD, run_daily menulis subset kode setup terbaik
+# ke live_today.txt; run_live.sh memantau file itu (BUKAN 50 kode penuh watchlist).
+# Tujuan: hemat kuota live ~80% (50 -> ~5 kode) tanpa kehilangan nilai trading —
+# konfirmasi order book live cukup di setup MARKUP terbaik. Live = validasi + timing
+# entry di setup hasil scan malam, bukan generator sinyal. Lihat scripts/live_watch.py.
+live_watch:
+  max_codes: 5                                          # cap kode dipantau live (kontrol kuota)
+  include_states: ["MARKUP_CONFIRMED", "MARKUP_START"]  # tier setup entry (CONFIRMED diurut dulu)
+  out_file: live_today.txt
