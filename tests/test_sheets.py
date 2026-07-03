@@ -50,10 +50,10 @@ def test_result_row_matches_header_order():
     row = _result_row(_result(), run_ts="2026-06-21T19:00:00")
     assert len(row) == len(_HEADER)
     assert row[:5] == ["2026-06-21T19:00:00", "2026-06-21", "BBRI", "MARKUP_CONFIRMED", 90]
-    # done_ratio dibulatkan 4 desimal; ihsg jadi bool; narrative di kolom akhir.
+    # done_ratio dibulatkan 4 desimal; ihsg jadi bool.
     assert row[_HEADER.index("done_ratio")] == 0.6789
     assert row[_HEADER.index("ihsg_above_ma50")] is True
-    assert row[-1] == "kondisi kuat"
+    assert row[_HEADER.index("narrative")] == "kondisi kuat"
 
 
 def test_result_row_defaults_for_missing_signals():
@@ -61,7 +61,26 @@ def test_result_row_defaults_for_missing_signals():
                       run_ts="t")
     assert row[_HEADER.index("queue_imbalance")] == 0.0
     assert row[_HEADER.index("broker_net_buy_streak")] == 0
-    assert row[-1] == ""  # narrative kosong
+    assert row[_HEADER.index("narrative")] == ""
+    # Kolom evaluasi default: alert_sent False, regime/levels kosong.
+    assert row[_HEADER.index("alert_sent")] is False
+    assert row[_HEADER.index("regime")] == ""
+    assert row[_HEADER.index("entry")] == ""
+
+
+def test_result_row_eval_columns_filled():
+    row = _result_row(_result(
+        regime="BULLISH", relative_strength=0.0345, alert_sent=True,
+        levels={"entry": 1005.0, "stop_loss": 950.0, "take_profit": 1115.0,
+                "rr_realized": 2.0},
+    ), run_ts="t")
+    assert row[_HEADER.index("regime")] == "BULLISH"
+    assert row[_HEADER.index("relative_strength")] == 0.0345
+    assert row[_HEADER.index("alert_sent")] is True
+    assert row[_HEADER.index("entry")] == 1005.0
+    assert row[_HEADER.index("stop_loss")] == 950.0
+    assert row[_HEADER.index("take_profit")] == 1115.0
+    assert row[_HEADER.index("rr_realized")] == 2.0
 
 
 def test_append_results_writes_all_rows_and_counts():

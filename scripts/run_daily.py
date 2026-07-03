@@ -255,8 +255,13 @@ def main() -> int:
             print(f"[WARN] {code}: {exc}", file=sys.stderr)
             continue
 
-        store.save_result(scan_date_str, code, state, conf, signals)
         rs = signals.get("relative_strength", 0.0)
+        levels_dict = levels.as_dict() if levels else None
+        store.save_result(
+            scan_date_str, code, state, conf, signals,
+            regime=regime.value, relative_strength=round(rs, 4),
+            levels=levels_dict,
+        )
         print(f"{code:6s} {state:22s} conf={conf} RS={rs:+.2%}")
 
         record = {
@@ -264,7 +269,8 @@ def main() -> int:
             "confidence": conf, "signals": signals, "narrative": "",
             "regime": regime.value,
             "relative_strength": round(rs, 4),
-            "levels": levels.as_dict() if levels else None,
+            "levels": levels_dict,
+            "alert_sent": False,   # di-set True setelah send_telegram sukses
         }
         if state in cfg.alert_states:
             if narrative_cfg.get("enabled"):
@@ -283,6 +289,12 @@ def main() -> int:
         try:
             send_telegram(cfg.telegram_bot_token, cfg.telegram_chat_id, msg)
             print("\n[OK] alert terkirim ke Telegram.")
+            # Catat status kirim di record (mirror Sheets) + SQLite — bahan
+            # evaluasi: bedakan sinyal yang benar-benar sampai ke user vs
+            # yang cuma tercatat (dry-run / Telegram gagal).
+            for r in actionable:
+                r["alert_sent"] = True
+            store.mark_alert_sent(scan_date_str, [r["code"] for r in actionable])
         except Exception as exc:  # noqa: BLE001
             print(f"\n[WARN] gagal kirim Telegram: {exc}", file=sys.stderr)
 

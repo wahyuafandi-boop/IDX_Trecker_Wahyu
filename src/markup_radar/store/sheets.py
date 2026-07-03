@@ -40,6 +40,14 @@ _HEADER = [
     "queue_imbalance",
     "ihsg_above_ma50",
     "narrative",
+    # -- kolom evaluasi (ditambah 2026-07-03; posisi di akhir sesuai aturan) --
+    "regime",
+    "relative_strength",
+    "alert_sent",      # True = sinyal ini benar-benar terkirim ke Telegram
+    "entry",           # levels hanya terisi utk MARKUP_* (state lain kosong)
+    "stop_loss",
+    "take_profit",
+    "rr_realized",
 ]
 
 
@@ -61,6 +69,7 @@ def load_service_account_info() -> dict | None:
 def _result_row(result: dict, run_ts: str) -> list[Any]:
     """Ubah satu hasil scan jadi baris sesuai urutan `_HEADER`."""
     s = result.get("signals", {})
+    lv = result.get("levels") or {}   # None utk non-MARKUP -> sel kosong
     return [
         run_ts,
         result.get("date", ""),
@@ -74,6 +83,13 @@ def _result_row(result: dict, run_ts: str) -> list[Any]:
         round(float(s.get("queue_imbalance", 0.0)), 4),
         bool(s.get("ihsg_above_ma50", False)),
         result.get("narrative", ""),
+        result.get("regime", ""),
+        round(float(result.get("relative_strength", 0.0)), 4),
+        bool(result.get("alert_sent", False)),
+        lv.get("entry", ""),
+        lv.get("stop_loss", ""),
+        lv.get("take_profit", ""),
+        lv.get("rr_realized", ""),
     ]
 
 
@@ -111,6 +127,34 @@ class SheetsSink:
         if rows:
             self._ws.append_rows(rows, value_input_option="RAW")
         return len(rows)
+
+
+def overwrite_worksheet(
+    spreadsheet_id: str,
+    worksheet: str,
+    credentials_info: dict,
+    header: list[str],
+    rows: list[list[Any]],
+) -> int:
+    """Tulis-ulang SELURUH isi worksheet (clear + header + rows).
+
+    Dipakai untuk data turunan (hasil evaluate_signals) yang selalu bisa
+    dihitung ulang dari log `signals` — idempoten, aman dijalankan berulang
+    tanpa menduplikasi baris. Return jumlah baris data ditulis.
+    """
+    import gspread
+
+    gc = gspread.service_account_from_dict(credentials_info, scopes=_SCOPES)
+    sh = gc.open_by_key(spreadsheet_id)
+    try:
+        ws = sh.worksheet(worksheet)
+        ws.clear()
+    except gspread.WorksheetNotFound:
+        ws = sh.add_worksheet(
+            title=worksheet, rows=max(len(rows) + 10, 100), cols=len(header)
+        )
+    ws.update([header] + rows, value_input_option="RAW")
+    return len(rows)
 
 
 def build_sink(cfg) -> SheetsSink | None:

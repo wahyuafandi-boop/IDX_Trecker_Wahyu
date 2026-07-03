@@ -136,8 +136,11 @@ narrative:
 # spreadsheet ke email service-account (Editor) dulu. Kosong/lib absen = sink mati.
 sheets:
   enabled: true
-  spreadsheet_id: ""     # isi ID Google Sheet tujuan (dari URL .../d/<ID>/edit)
-  worksheet: signals
+  # "Markup Radar - Signal Log" (share Editor ke service-account trading-agent).
+  spreadsheet_id: "1hcgZ2CghsxR9TFe8mvvajDr52Y6K5xtiBXi1k7aPsGI"
+  worksheet: signals               # log append-only hasil scan harian
+  eval_worksheet: evaluation       # detail evaluasi per sinyal (ditulis-ulang)
+  eval_summary_worksheet: eval_summary  # rapor win-rate per state (ditulis-ulang)
 
 # Auto-screener: refresh watchlist_today.txt dari Invezgo (POST /screener/screen).
 # Dijalankan run_screen.sh di VPS sebelum run_eod.sh.

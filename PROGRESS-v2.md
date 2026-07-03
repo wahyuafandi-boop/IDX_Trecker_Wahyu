@@ -33,6 +33,20 @@
 
 ## Changelog
 
+- **2026-07-03 — Pencatatan sinyal + evaluasi forward (bahan validasi edge).** (1) **Sheets mirror
+  AKTIF**: `spreadsheet_id` diisi ("Markup Radar - Signal Log", share Editor ke SA
+  `id-n8n-sheets@trading-agent-497804...`; SA tak bisa create file sendiri — kuota Drive SA = 0 sejak
+  2025). Header ditambah kolom evaluasi (di AKHIR): `regime, relative_strength, alert_sent,
+  entry, stop_loss, take_profit, rr_realized`. (2) **SQLite migrasi otomatis** (`db.py`): kolom sama +
+  `mark_alert_sent(date, codes)` — dipanggil run_daily HANYA setelah `send_telegram` sukses, jadi
+  kebedakan sinyal terkirim vs tercatat; upsert tak me-reset flag. (3) **`evaluate_signals.py` +
+  `src/markup_radar/evaluate.py`**: baca semua baris DB → 1 call chart/kode → `fwd_close_5/10/20`
+  + MFE/MAE per sinyal (NEUTRAL = baseline) + simulasi levels terpublish (fill bila high≥entry ≤5
+  bar, SL-first — reuse `backtest.metrics`). Output console + `--csv` + `--sheets` (worksheet
+  `evaluation` & `eval_summary`, ditulis-ulang/idempoten). (4) `run_eval.sh` utk cron VPS mingguan
+  (Sabtu 02:00 UTC). Suite: 169 passed (+16: test_db 4, test_evaluate 9, test_sheets +3).
+  *Temuan ops:* Task Scheduler Windows EOD 19:05 MASIH aktif (baris 2026-07-03 muncul di DB lokal
+  saat sesi) padahal VPS = runner tunggal → dobel kuota/alert; matikan salah satu.
 - **2026-06-23 — F8 SELESAI (verdict: PERTAHANKAN prior).** Run penuh 7 saham (AVIA TPIA BULL
   HEAL MAPA BREN PTRO, 2024-06..2026-06) lewat `scripts/tune_f8.py`. Hasil: **sinyal MARKUP terlalu
   sedikit untuk tuning meyakinkan** — BULLISH n~5-28 across rvol grid (hit@fwd_close+5%/20d 17-29%,
