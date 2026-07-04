@@ -10,6 +10,8 @@ import html
 
 import requests
 
+from markup_radar.ingest.ownership_client import fmt_rp
+
 _EMOJI = {
     "MARKUP_CONFIRMED": "✅",
     "MARKUP_START": "🚀",
@@ -97,6 +99,31 @@ def format_alert(date: str, items: list[dict]) -> str:
                     f"{html.escape(str(c['label']))} {html.escape(str(c['date']))}"
                     for c in ca[:3]
                 )
+            )
+
+        # Float control (KSEI bulanan): porsi ritel kecil & menyusun = supply
+        # terkunci, gampang di-markup; ritel membengkak = distribusi.
+        own = it.get("ownership")
+        if own:
+            seg = f"   🏦 Ritel {own['retail_pct']:.1f}%"
+            if own.get("retail_float_pct") is not None:
+                seg += f" ({own['retail_float_pct']:.0f}% FF)"
+            if own.get("controlling_pct"):
+                seg += f" · pengendali {own['controlling_pct']:.1f}%"
+            if own.get("trend_months"):
+                pp = own.get("retail_trend_pp", 0.0)
+                arrow = "▼" if pp < 0 else ("▲" if pp > 0 else "→")
+                seg += f" · {arrow}{abs(pp):.1f}pp/{own['trend_months']}bln"
+            lines.append(seg)
+
+        # Rotasi net-flow per kategori broker hari scan (heuristik mapping
+        # settings.yaml): ritel minus + asing/smart plus = rotasi bullish.
+        rot = it.get("rotation")
+        if rot:
+            lines.append(
+                f"   🔄 Ritel {fmt_rp(rot['retail_net'])} · "
+                f"Asing {fmt_rp(rot['foreign_net'])} · "
+                f"Smart {fmt_rp(rot['smart_net'])}"
             )
 
         if it.get("narrative"):

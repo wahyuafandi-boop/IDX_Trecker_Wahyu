@@ -122,6 +122,18 @@ class Settings:
         return dict(self.raw.get("insider", {}))
 
     @property
+    def ownership(self) -> dict[str, Any]:
+        """Param enrichment float control (enabled, ksei_range_months,
+        max_codes). Fase A: konteks alert/narasi saja, bukan gate classifier."""
+        return dict(self.raw.get("ownership", {}))
+
+    @property
+    def broker_categories(self) -> dict[str, list]:
+        """Mapping heuristik kode broker -> kategori (retail/foreign/smart)
+        utk rotasi net-flow. Editable di settings.yaml `broker_categories`."""
+        return dict(self.raw.get("broker_categories", {}))
+
+    @property
     def live_watch(self) -> dict[str, Any]:
         """Param subset kode live-watch (dipilih dari hasil scan EOD): max_codes,
         include_states, out_file. Dipakai run_daily -> live_today.txt -> run_live."""

@@ -33,6 +33,23 @@
 
 ## Changelog
 
+- **2026-07-04 (2) — Float control + rotasi broker per kategori (Fase A, additive).** Menjawab teori
+  bandarmologi user: (1) porsi ritel <15-20% dari free float = supply terkunci gampang markup;
+  (2) dominasi smart money; (3) mapping broker ritel/asing/smart; (4) rotasi "ritel jual, asing/smart
+  tampung". Data diverifikasi live: `/analysis/shareholder/ksei/{code}?range=N` (bulanan, lembar per
+  tipe investor; **sum semua komponen 1 baris = total saham tercatat**, `*_id` = ritel individu),
+  `/analysis/shareholder/{code}` (komposisi + badge `{PENGENDALI}`), broker summary reuse. Implementasi:
+  `ingest/ownership_client.py` (parser murni + fetch fail-soft + `fmt_rp` T/M/jt), method client
+  `shareholder_ksei`/`shareholder_composition`, blok YAML `ownership:` + `broker_categories:`
+  (mapping heuristik EDITABLE: retail YP/PD/XC/XL/NI/SQ/EP/AG, foreign AK/BK/ZP/YU/KZ/RX/CG/MS, smart
+  AZ/CC/DX/LG/IF/YJ; di luar mapping = other). `_enrich_actionable` di-restruktur (gate terpisah
+  insider vs ownership), alert baris `🏦 Ritel x% (y% FF) · pengendali z% · ▲/▼pp/Nbln` + `🔄 Ritel/
+  Asing/Smart net`, narasi dapat konteks float+rotasi. Guard: rasio FF >100% (KSEI vs komposisi beda
+  tanggal) -> disembunyikan. **Classifier/confidence TIDAK disentuh** (Fase B nanti: angkat jadi bobot
+  via evaluate_signals setelah data forward cukup). Kuota +3 call/kode actionable. Temuan smoke:
+  SDRA ritel 17% dari FF (profil "terkunci"), WINR ritel +12pp/5bln (distribusi ke ritel — konsisten
+  harga 46→33) & rotasi small-cap sering numpuk di `other` (bandar pakai broker kecil non-mapping).
+  Suite: 187 passed (+9 test_ownership).
 - **2026-07-04 — Insider + corporate action enrichment (alert & narasi).** Endpoint baru
   diverifikasi live via `scripts/verify_insider.py` (path dari invezgo-go-sdk analysis.go/others.go):
   `/analysis/shareholder-insider` (market-wide, paged; **limit server maks ~50 — 100 balik HTTP 500**),

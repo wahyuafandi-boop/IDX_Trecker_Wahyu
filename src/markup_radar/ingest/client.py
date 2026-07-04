@@ -329,6 +329,20 @@ class InvezgoClient:
              "broker": broker, "page": page, "limit": limit},
         )
 
+    def shareholder_ksei(self, code: str, *, range_: int = 6) -> Any:
+        """Breakdown kepemilikan KSEI bulanan per tipe investor (lembar).
+
+        Response: [{code, date, price, foreign_is/cp/pf/ib/id/mf/sc/fd/ot,
+        local_...}] — `id` = individual (ritel). Sum semua komponen 1 baris
+        = total saham tercatat bulan itu (diverifikasi WINR 2026-07-04).
+        """
+        return self._get(f"/analysis/shareholder/ksei/{code}", {"range": range_})
+
+    def shareholder_composition(self, code: str) -> Any:
+        """Komposisi pemegang saham: [{name, percentage, badge}] —
+        badge mis. '{PENGENDALI}', '{DIREKSI,PENGENDALI}'."""
+        return self._get(f"/analysis/shareholder/{code}")
+
     def calendar(
         self,
         *,

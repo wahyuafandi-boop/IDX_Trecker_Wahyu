@@ -46,7 +46,9 @@ def generate_narrative(
         prompt += (
             f" Konteks tambahan (sebut HANYA bila penting, mis. insider "
             f"divestasi saat sinyal naik = red flag, insider akumulasi = "
-            f"konfirmasi, RUPS/dividen dekat tanggal entry): {extra_context}. "
+            f"konfirmasi, RUPS/dividen dekat tanggal entry, porsi ritel "
+            f"kecil/menyusut = supply terkunci, rotasi ritel jual ke "
+            f"asing/smart money = konfirmasi): {extra_context}. "
             f"Boleh 2 kalimat kalau konteks ini penting."
         )
     msg = client.messages.create(

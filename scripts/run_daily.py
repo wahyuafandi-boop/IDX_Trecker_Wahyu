@@ -40,6 +40,11 @@ from markup_radar.ingest.insider_client import (
     fetch_upcoming_actions,
 )
 from markup_radar.ingest.ohlc_client import fetch_ohlcv
+from markup_radar.ingest.ownership_client import (
+    fetch_broker_rotation,
+    fetch_ownership,
+    fmt_rp,
+)
 from markup_radar.narrative import generate_narrative
 from markup_radar.scoring import classify, confidence_markup_start
 from markup_radar.signals import StockData, compute_signals
@@ -104,44 +109,66 @@ def _write_live_codes(actionable: list[dict], cfg, *, dry_run: bool) -> list[str
 def _enrich_actionable(
     client: InvezgoClient, actionable: list[dict], date: dt.date, cfg
 ) -> None:
-    """Tempelkan konteks insider + corporate action ke record actionable.
+    """Tempelkan konteks insider + corporate action + float control ke
+    record actionable.
 
     Hemat kuota: insider = 1-3 call MARKET-WIDE (intersect lokal dgn kode
-    actionable, bukan per saham); calendar = 1 call per kode actionable,
-    di-cap `max_calendar_codes` dgn prioritas state MARKUP (tier entry yang
-    paling butuh konteks). Fail-soft: modul insider_client sudah menelan
-    error API -> record tanpa key insider/corp_actions, alert tetap jalan.
+    actionable, bukan per saham); calendar 1 call & ownership 3 call per
+    kode actionable, masing-masing di-cap (max_calendar_codes / max_codes)
+    dgn prioritas state MARKUP (tier entry yang paling butuh konteks).
+    Fail-soft: modul insider/ownership sudah menelan error API -> record
+    tanpa key terkait, alert tetap jalan. Fase A: enrichment SAJA — tidak
+    menyentuh classifier/confidence (pelajaran F8: tuning bobot menyusul
+    setelah data forward cukup).
     """
-    ins_cfg = cfg.insider
-    if not ins_cfg.get("enabled") or not actionable:
+    if not actionable:
         return
-    lookback = int(ins_cfg.get("lookback_days", 30))
-    horizon = int(ins_cfg.get("calendar_horizon_days", 21))
-    max_cal = int(ins_cfg.get("max_calendar_codes", 10))
-
-    codes = {r["code"] for r in actionable}
-    ins_map = fetch_insider_map(client, *_date_range(date, lookback), codes)
-    for r in actionable:
-        info = ins_map.get(r["code"])
-        if info:
-            r["insider"] = {**info, "window_days": lookback}
-
     prio = {"MARKUP_CONFIRMED": 0, "MARKUP_START": 1}
     ranked = sorted(
         actionable,
         key=lambda r: (prio.get(r["state"], 9), -r.get("confidence", 0)),
     )
-    for r in ranked[:max_cal]:
-        acts = fetch_upcoming_actions(
-            client, r["code"], date.isoformat(), horizon_days=horizon
-        )
-        if acts:
-            r["corp_actions"] = acts
+
+    ins_cfg = cfg.insider
+    if ins_cfg.get("enabled"):
+        lookback = int(ins_cfg.get("lookback_days", 30))
+        horizon = int(ins_cfg.get("calendar_horizon_days", 21))
+        max_cal = int(ins_cfg.get("max_calendar_codes", 10))
+
+        codes = {r["code"] for r in actionable}
+        ins_map = fetch_insider_map(client, *_date_range(date, lookback), codes)
+        for r in actionable:
+            info = ins_map.get(r["code"])
+            if info:
+                r["insider"] = {**info, "window_days": lookback}
+
+        for r in ranked[:max_cal]:
+            acts = fetch_upcoming_actions(
+                client, r["code"], date.isoformat(), horizon_days=horizon
+            )
+            if acts:
+                r["corp_actions"] = acts
+
+    own_cfg = cfg.ownership
+    if own_cfg.get("enabled"):
+        range_months = int(own_cfg.get("ksei_range_months", 6))
+        max_own = int(own_cfg.get("max_codes", 10))
+        cats = cfg.broker_categories
+        for r in ranked[:max_own]:
+            own = fetch_ownership(client, r["code"], range_months=range_months)
+            if own:
+                r["ownership"] = own
+            rot = fetch_broker_rotation(client, r["code"], date.isoformat(), cats)
+            if rot:
+                r["rotation"] = rot
 
     n_ins = sum(1 for r in actionable if r.get("insider"))
     n_ca = sum(1 for r in actionable if r.get("corp_actions"))
-    print(f"[info] enrichment: insider {n_ins}/{len(actionable)} kode, "
-          f"corp-action {n_ca}/{len(actionable)} kode.", file=sys.stderr)
+    n_own = sum(1 for r in actionable if r.get("ownership"))
+    n_rot = sum(1 for r in actionable if r.get("rotation"))
+    print(f"[info] enrichment: insider {n_ins}, corp-action {n_ca}, "
+          f"ownership {n_own}, rotasi {n_rot} dari {len(actionable)} kode.",
+          file=sys.stderr)
 
 
 def _extra_context(record: dict) -> str:
@@ -160,6 +187,28 @@ def _extra_context(record: dict) -> str:
         parts.append(
             "corporate action: "
             + ", ".join(f"{c['label']} {c['date']}" for c in ca[:3])
+        )
+    own = record.get("ownership")
+    if own:
+        seg = f"float control: ritel pegang {own['retail_pct']:.1f}% saham tercatat"
+        if own.get("retail_float_pct") is not None:
+            seg += (f" (~{own['retail_float_pct']:.0f}% dari free float; "
+                    f"pengendali {own['controlling_pct']:.1f}%)")
+        if own.get("trend_months"):
+            pp = own.get("retail_trend_pp", 0.0)
+            makna = ("ritel menyusut = barang pindah ke tangan kuat" if pp < 0
+                     else "ritel membengkak = indikasi distribusi" if pp > 0
+                     else "stabil")
+            seg += (f", tren ritel {pp:+.1f} pp dalam "
+                    f"{own['trend_months']} bulan ({makna})")
+        parts.append(seg)
+    rot = record.get("rotation")
+    if rot:
+        parts.append(
+            f"rotasi broker hari ini: ritel {fmt_rp(rot['retail_net'])}, "
+            f"asing {fmt_rp(rot['foreign_net'])}, "
+            f"smart money {fmt_rp(rot['smart_net'])} "
+            f"(ritel jual + asing/smart tampung = rotasi bullish)"
         )
     return "; ".join(parts)
 
