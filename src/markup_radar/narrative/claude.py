@@ -15,9 +15,15 @@ def generate_narrative(
     *,
     api_key: str,
     model: str = "claude-opus-4-8",
+    extra_context: str = "",
 ) -> str:
     """Hasilkan satu kalimat narasi. Fallback ke ringkasan rule-based bila SDK
-    anthropic tidak terpasang atau API key kosong."""
+    anthropic tidak terpasang atau API key kosong.
+
+    `extra_context` (opsional): konteks insider/corporate action dari
+    run_daily — disebut di narasi hanya bila relevan (mis. insider divestasi
+    saat sinyal MARKUP = red flag; insider akumulasi = konfirmasi).
+    """
     if not api_key:
         return _fallback(code, state, signals)
     try:
@@ -36,6 +42,13 @@ def generate_narrative(
         f"ihsg_above_ma50={signals.get('ihsg_above_ma50')}. "
         f"Jangan beri rekomendasi beli/jual eksplisit, cukup deskripsi kondisi."
     )
+    if extra_context:
+        prompt += (
+            f" Konteks tambahan (sebut HANYA bila penting, mis. insider "
+            f"divestasi saat sinyal naik = red flag, insider akumulasi = "
+            f"konfirmasi, RUPS/dividen dekat tanggal entry): {extra_context}. "
+            f"Boleh 2 kalimat kalau konteks ini penting."
+        )
     msg = client.messages.create(
         model=model,
         max_tokens=120,

@@ -266,3 +266,99 @@ class InvezgoClient:
     def index_list(self) -> Any:
         """Daftar index (IHSG, LQ45, dst). TODO(verify): path literal."""
         return self._get("/indexes")  # TODO(verify)
+
+    # ------------------------------------------------------------------ #
+    # Insider / kepemilikan / corporate action / berita
+    # Path dikonfirmasi dari invezgo-go-sdk (analysis.go + others.go,
+    # dicek 2026-07-04). Shape response diverifikasi via
+    # scripts/verify_insider.py sebelum dipakai produksi.
+    # ------------------------------------------------------------------ #
+    def shareholder_insider(
+        self,
+        date_from: str,
+        date_to: str,
+        *,
+        code: str | None = None,
+        name: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        """Transaksi insider (laporan kepemilikan direksi/komisaris/PSP).
+
+        Tanpa `code` -> market-wide (hemat kuota: 1 call utk semua saham,
+        intersect dgn watchlist dilakukan lokal).
+        """
+        return self._get(
+            "/analysis/shareholder-insider",
+            {"from": date_from, "to": date_to, "code": code, "name": name,
+             "page": page, "limit": limit},
+        )
+
+    def shareholder_one(
+        self,
+        date_from: str,
+        date_to: str,
+        *,
+        code: str | None = None,
+        name: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        """Perubahan kepemilikan >1% (keterbukaan informasi kepemilikan)."""
+        return self._get(
+            "/analysis/shareholder-one",
+            {"from": date_from, "to": date_to, "code": code, "name": name,
+             "page": page, "limit": limit},
+        )
+
+    def shareholder_above(
+        self,
+        date_from: str,
+        date_to: str,
+        *,
+        code: str | None = None,
+        name: str | None = None,
+        broker: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        """Perubahan kepemilikan >5%."""
+        return self._get(
+            "/analysis/shareholder-above",
+            {"from": date_from, "to": date_to, "code": code, "name": name,
+             "broker": broker, "page": page, "limit": limit},
+        )
+
+    def calendar(
+        self,
+        *,
+        code: str | None = None,
+        type_: str | None = None,
+        page: int | None = None,
+        limit: int | None = None,
+    ) -> Any:
+        """Kalender corporate action (RUPS, dividen, dst)."""
+        return self._get(
+            "/analysis/calendar",
+            {"code": code, "type": type_, "page": page, "limit": limit},
+        )
+
+    def stock_posts(self, code: str, *, page: int = 1, limit: int = 10) -> Any:
+        """Feed postingan per emiten (= feed dashboard Beranda).
+
+        `page` & `limit` WAJIB dua-duanya (server 422 bila salah satu absen).
+        Response: {totalPage, page, nextPage, data:[{id, username, content,
+        created_at, ...}]} — content post 'Invezgo Report' berupa tag
+        <report title=".." code=".." url="<pdf IDX>" type="shareholder|..">.
+        """
+        return self._get(f"/posts/space/{code}", {"page": page, "limit": limit})
+
+    def stock_category_posts(
+        self, code: str, category: str, *, page: int = 1, limit: int = 10
+    ) -> Any:
+        """Feed postingan per emiten difilter kategori (mis. berita /
+        keterbukaan informasi). Slug kategori dicek via probe."""
+        return self._get(
+            f"/posts/space/category/{code}/{category}",
+            {"page": page, "limit": limit},
+        )

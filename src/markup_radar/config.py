@@ -115,6 +115,13 @@ class Settings:
         return dict(self.raw.get("sheets", {}))
 
     @property
+    def insider(self) -> dict[str, Any]:
+        """Param enrichment insider & corporate action (enabled, lookback_days,
+        calendar_horizon_days, max_calendar_codes). Dipakai run_daily setelah
+        scan untuk memperkaya alert/narasi kode actionable."""
+        return dict(self.raw.get("insider", {}))
+
+    @property
     def live_watch(self) -> dict[str, Any]:
         """Param subset kode live-watch (dipilih dari hasil scan EOD): max_codes,
         include_states, out_file. Dipakai run_daily -> live_today.txt -> run_live."""

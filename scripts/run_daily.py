@@ -35,6 +35,10 @@ from markup_radar.ingest.done_client import (
     latest_available_done_date,
 )
 from markup_radar.ingest.ihsg_client import fetch_ihsg
+from markup_radar.ingest.insider_client import (
+    fetch_insider_map,
+    fetch_upcoming_actions,
+)
 from markup_radar.ingest.ohlc_client import fetch_ohlcv
 from markup_radar.narrative import generate_narrative
 from markup_radar.scoring import classify, confidence_markup_start
@@ -95,6 +99,69 @@ def _write_live_codes(actionable: list[dict], cfg, *, dry_run: bool) -> list[str
             os.unlink(tmp)
     print(f"[OK] {len(codes)} kode live ditulis ke {out_path}", file=sys.stderr)
     return codes
+
+
+def _enrich_actionable(
+    client: InvezgoClient, actionable: list[dict], date: dt.date, cfg
+) -> None:
+    """Tempelkan konteks insider + corporate action ke record actionable.
+
+    Hemat kuota: insider = 1-3 call MARKET-WIDE (intersect lokal dgn kode
+    actionable, bukan per saham); calendar = 1 call per kode actionable,
+    di-cap `max_calendar_codes` dgn prioritas state MARKUP (tier entry yang
+    paling butuh konteks). Fail-soft: modul insider_client sudah menelan
+    error API -> record tanpa key insider/corp_actions, alert tetap jalan.
+    """
+    ins_cfg = cfg.insider
+    if not ins_cfg.get("enabled") or not actionable:
+        return
+    lookback = int(ins_cfg.get("lookback_days", 30))
+    horizon = int(ins_cfg.get("calendar_horizon_days", 21))
+    max_cal = int(ins_cfg.get("max_calendar_codes", 10))
+
+    codes = {r["code"] for r in actionable}
+    ins_map = fetch_insider_map(client, *_date_range(date, lookback), codes)
+    for r in actionable:
+        info = ins_map.get(r["code"])
+        if info:
+            r["insider"] = {**info, "window_days": lookback}
+
+    prio = {"MARKUP_CONFIRMED": 0, "MARKUP_START": 1}
+    ranked = sorted(
+        actionable,
+        key=lambda r: (prio.get(r["state"], 9), -r.get("confidence", 0)),
+    )
+    for r in ranked[:max_cal]:
+        acts = fetch_upcoming_actions(
+            client, r["code"], date.isoformat(), horizon_days=horizon
+        )
+        if acts:
+            r["corp_actions"] = acts
+
+    n_ins = sum(1 for r in actionable if r.get("insider"))
+    n_ca = sum(1 for r in actionable if r.get("corp_actions"))
+    print(f"[info] enrichment: insider {n_ins}/{len(actionable)} kode, "
+          f"corp-action {n_ca}/{len(actionable)} kode.", file=sys.stderr)
+
+
+def _extra_context(record: dict) -> str:
+    """Ringkas insider/corp action jadi kalimat pendek utk prompt narasi."""
+    parts: list[str] = []
+    ins = record.get("insider")
+    if ins:
+        parts.append(
+            f"insider {ins.get('window_days', 30)} hari: net "
+            f"{ins['net_change_pct']:+.2f} poin persen kepemilikan "
+            f"({ins['n_reports']} laporan, terakhir "
+            f"{ins.get('last_purpose') or 'n/a'} {ins.get('last_date', '')})"
+        )
+    ca = record.get("corp_actions")
+    if ca:
+        parts.append(
+            "corporate action: "
+            + ", ".join(f"{c['label']} {c['date']}" for c in ca[:3])
+        )
+    return "; ".join(parts)
 
 
 def build_stock_data(
@@ -273,14 +340,22 @@ def main() -> int:
             "alert_sent": False,   # di-set True setelah send_telegram sukses
         }
         if state in cfg.alert_states:
-            if narrative_cfg.get("enabled"):
-                record["narrative"] = generate_narrative(
-                    code, state, signals,
-                    api_key=cfg.anthropic_api_key,
-                    model=narrative_cfg.get("model", "claude-opus-4-8"),
-                )
             actionable.append(record)
         scan_log.append(record)
+
+    # Konteks insider + corporate action utk kode actionable (fitur opsional,
+    # blok `insider` di settings.yaml). Dilakukan SEBELUM narasi supaya Claude
+    # bisa menyebut insider buy/divestasi & RUPS/dividen mendatang di alert.
+    _enrich_actionable(client, actionable, date, cfg)
+
+    if narrative_cfg.get("enabled"):
+        for record in actionable:
+            record["narrative"] = generate_narrative(
+                record["code"], record["state"], record["signals"],
+                api_key=cfg.anthropic_api_key,
+                model=narrative_cfg.get("model", "claude-opus-4-8"),
+                extra_context=_extra_context(record),
+            )
 
     msg = format_alert(scan_date_str, actionable)
     print("\n" + msg)

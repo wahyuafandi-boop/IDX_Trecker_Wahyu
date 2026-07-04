@@ -33,6 +33,21 @@
 
 ## Changelog
 
+- **2026-07-04 — Insider + corporate action enrichment (alert & narasi).** Endpoint baru
+  diverifikasi live via `scripts/verify_insider.py` (path dari invezgo-go-sdk analysis.go/others.go):
+  `/analysis/shareholder-insider` (market-wide, paged; **limit server maks ~50 — 100 balik HTTP 500**),
+  `/analysis/shareholder-one|-above`, `/analysis/calendar` (payload beda per type: RUPS_SCHEDULE/
+  PUBLIC_EXPOSE/CONVERTION/dst, bisa berisi event lampau), `/posts/space/{code}` (**wajib `page`+`limit`**,
+  isi = feed "Invezgo Report" dgn tag `<report title url type>`). Implementasi: (1) method baru di
+  `client.py` (shareholder_insider/one/above, calendar, stock_posts); (2) `ingest/insider_client.py` —
+  `fetch_insider_map` (1-6 call MARKET-WIDE, intersect lokal dgn kode actionable) +
+  `fetch_upcoming_actions` (1 call/kode actionable, cap `max_calendar_codes`, window
+  `calendar_horizon_days`); (3) `run_daily._enrich_actionable` setelah loop scan, narasi dipindah ke
+  SETELAH enrichment (Claude bisa sebut insider divestasi = red flag / akumulasi = konfirmasi via
+  `extra_context`); (4) alert Telegram baris baru `👤 Insider 30d: 🔴 -2.04 pp (10 laporan, terakhir
+  Divestasi ...)` + `📅 RUPS EGM 2026-07-15`; (5) blok YAML `insider:` (enabled/lookback_days/
+  calendar_horizon_days/max_calendar_codes). Kuota: +2-8 call/run HANYA bila ada actionable.
+  Smoke live: WINR 10 laporan sell net -2.04pp kedetek 🔴. Suite: 178 passed (+9 test_insider).
 - **2026-07-03 — Pencatatan sinyal + evaluasi forward (bahan validasi edge).** (1) **Sheets mirror
   AKTIF**: `spreadsheet_id` diisi ("Markup Radar - Signal Log", share Editor ke SA
   `id-n8n-sheets@trading-agent-497804...`; SA tak bisa create file sendiri — kuota Drive SA = 0 sejak

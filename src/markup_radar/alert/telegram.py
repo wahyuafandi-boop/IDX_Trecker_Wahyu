@@ -72,6 +72,33 @@ def format_alert(date: str, items: list[dict]) -> str:
                 f"~hold {lv['est_hold_days']}d"
             )
 
+        # Insider 30d (kalau ada laporan di window): + = akumulasi orang dalam
+        # (konfirmasi), - = divestasi (red flag saat sinyal MARKUP).
+        ins = it.get("insider")
+        if ins:
+            net = ins.get("net_change_pct", 0.0)
+            dot = "🟢" if net > 0 else ("🔴" if net < 0 else "⚪")
+            detail = f"{ins.get('n_reports', 0)} laporan"
+            if ins.get("last_purpose"):
+                detail += f", terakhir {html.escape(str(ins['last_purpose']))}"
+            if ins.get("last_date"):
+                detail += f" {html.escape(str(ins['last_date']))}"
+            lines.append(
+                f"   👤 Insider {ins.get('window_days', 30)}d: "
+                f"{dot} {net:+.2f} pp ({detail})"
+            )
+
+        # Corporate action mendatang (window ~horizon hold): RUPS/dividen/dst.
+        ca = it.get("corp_actions")
+        if ca:
+            lines.append(
+                "   📅 "
+                + " · ".join(
+                    f"{html.escape(str(c['label']))} {html.escape(str(c['date']))}"
+                    for c in ca[:3]
+                )
+            )
+
         if it.get("narrative"):
             lines.append(f"   <i>{html.escape(str(it['narrative']))}</i>")
     lines.append("")
