@@ -18,12 +18,18 @@ import datetime as dt
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Izinkan import 'markup_radar' tanpa install (src layout).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from markup_radar.alert import format_alert, send_telegram
+from markup_radar.alert import (
+    format_alert,
+    format_batch_header,
+    format_signal,
+    send_telegram,
+)
 from markup_radar.config import load_codes_file, load_settings, parse_codes
 from markup_radar.ingest import InvezgoClient
 from markup_radar.ingest.broker_client import (
@@ -406,21 +412,35 @@ def main() -> int:
                 extra_context=_extra_context(record),
             )
 
-    msg = format_alert(scan_date_str, actionable)
-    print("\n" + msg)
+    # Log konsol: format gabungan padat (ringkas untuk file log VPS).
+    print("\n" + format_alert(scan_date_str, actionable))
 
     if not args.dry_run and actionable:
+        # Kirim PER SINYAL PER CHAT (gaya auto-trading): 1 pesan ramah-awam per
+        # saham, didahului 1 baris header. Rate-limit Telegram same-chat ~1 msg/detik
+        # -> jeda kecil antar pesan. mark_alert_sent hanya untuk kode yang benar
+        # terkirim (bahan evaluasi: bedakan sampai-ke-user vs cuma tercatat).
         try:
-            send_telegram(cfg.telegram_bot_token, cfg.telegram_chat_id, msg)
-            print("\n[OK] alert terkirim ke Telegram.")
-            # Catat status kirim di record (mirror Sheets) + SQLite — bahan
-            # evaluasi: bedakan sinyal yang benar-benar sampai ke user vs
-            # yang cuma tercatat (dry-run / Telegram gagal).
-            for r in actionable:
-                r["alert_sent"] = True
-            store.mark_alert_sent(scan_date_str, [r["code"] for r in actionable])
+            send_telegram(cfg.telegram_bot_token, cfg.telegram_chat_id,
+                          format_batch_header(scan_date_str, actionable))
         except Exception as exc:  # noqa: BLE001
-            print(f"\n[WARN] gagal kirim Telegram: {exc}", file=sys.stderr)
+            print(f"\n[WARN] gagal kirim header Telegram: {exc}", file=sys.stderr)
+
+        sent_codes: list[str] = []
+        for r in actionable:
+            try:
+                send_telegram(cfg.telegram_bot_token, cfg.telegram_chat_id,
+                              format_signal(scan_date_str, r))
+                r["alert_sent"] = True
+                sent_codes.append(r["code"])
+                time.sleep(0.6)   # hormati rate-limit same-chat Telegram
+            except Exception as exc:  # noqa: BLE001 — jangan gagalkan sisa batch
+                print(f"\n[WARN] gagal kirim {r['code']}: {exc}", file=sys.stderr)
+
+        if sent_codes:
+            print(f"\n[OK] {len(sent_codes)} sinyal terkirim ke Telegram "
+                  f"({', '.join(sent_codes)}).")
+            store.mark_alert_sent(scan_date_str, sent_codes)
 
     # Daftar kode live-watch besok pagi (subset setup MARKUP terbaik, top-N by
     # confidence) -> live_today.txt. Dipakai run_live.sh agar polling fokus & hemat

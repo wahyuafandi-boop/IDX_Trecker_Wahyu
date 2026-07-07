@@ -155,7 +155,7 @@ def _cycle(client, codes, cfg, prev, last_verdict, accum, accum_lbl,
            *, send_tg, token, chat_id) -> int:
     """Satu siklus polling semua kode. Return jumlah kode yang BERHASIL ditarik
     (0 = semua gagal -> dipakai main() untuk deteksi network down & auto-stop)."""
-    from markup_radar.alert import send_telegram
+    from markup_radar.alert import format_live_signal, send_telegram
 
     demand = float(cfg.thresholds.get("queue_imbalance_demand", 1.0))
     bigmoney = float(cfg.thresholds.get("queue_bigmoney_lot_per_order", 20.0))
@@ -200,13 +200,17 @@ def _cycle(client, codes, cfg, prev, last_verdict, accum, accum_lbl,
         flip_bullish = verdict in _BULLISH and last_verdict.get(code) not in _BULLISH
         wall_pulled = owall == "v" and accum.get(code, False)
         if send_tg and (flip_bullish or wall_pulled):
-            why = _TAG[verdict] if flip_bullish else "tembok OFFER dicabut/mengecil"
+            # Pesan ramah-awam (gaya auto-trading); flip bullish diprioritaskan
+            # atas wall-pulled bila keduanya kebetulan sama-sama benar.
             try:
-                send_telegram(token, chat_id,
-                              f"[LIVE] {code}: {why} (imb {imb:.2f}, "
-                              f"bid {q['bid_lot_per_order']:.0f} / off "
-                              f"{q['offer_lot_per_order']:.0f} lot/order, "
-                              f"{accum_lbl.get(code, '?')}). Pantau & kelola risiko sendiri.")
+                send_telegram(token, chat_id, format_live_signal(
+                    code,
+                    verdict=verdict if flip_bullish else None,
+                    wall_pulled=not flip_bullish,
+                    imb=imb,
+                    accum_label=accum_lbl.get(code, ""),
+                    time_str=ts[:5],
+                ))
             except Exception as exc:  # noqa: BLE001
                 print(f"  [WARN] telegram: {exc}")
         last_verdict[code] = verdict

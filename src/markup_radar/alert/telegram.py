@@ -19,6 +19,85 @@ _EMOJI = {
     "DISTRIBUTION_WARNING": "🔻",
 }
 
+# --- Pesan ramah-awam per sinyal (gaya auto-trading, spec UX 2026-07-07) ---
+_MONTHS_ID = ["", "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+              "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+
+# state -> (emoji, label ramah, penjelasan awam satu kalimat).
+_STATE_INFO = {
+    "MARKUP_CONFIRMED": (
+        "✅", "Markup Terkonfirmasi",
+        "Bandar sudah selesai kumpulin barang dan antrian beli menumpuk — "
+        "ini setup paling siap naik.",
+    ),
+    "MARKUP_START": (
+        "🚀", "Awal Markup",
+        "Bandar mulai angkat harga — pembeli agresif dan broker masih borong.",
+    ),
+    "ACCUMULATION_ONGOING": (
+        "🟡", "Akumulasi Berlangsung",
+        "Bandar diam-diam mengumpulkan barang selagi harga ranging — "
+        "belum saatnya naik, cukup dipantau dulu.",
+    ),
+    "DISTRIBUTION_WARNING": (
+        "🔻", "Waspada Distribusi",
+        "Penjual menguasai dan broker berbalik jual di area puncak — "
+        "risiko turun, hati-hati.",
+    ),
+}
+_MARKUP_STATES = ("MARKUP_CONFIRMED", "MARKUP_START")
+
+
+def _fmt_date_id(iso: str) -> str:
+    """'2026-07-06' -> '6 Jul 2026'. Fallback ke input mentah bila gagal parse."""
+    try:
+        y, m, d = (int(x) for x in iso.split("-"))
+        return f"{d} {_MONTHS_ID[m]} {y}"
+    except (ValueError, IndexError):
+        return iso
+
+
+def _why_bullets(s: dict, own: dict | None) -> list[str]:
+    """Terjemahkan sinyal teknis (done_ratio/rvol/close/streak/ownership) jadi
+    poin bahasa awam untuk blok 'Kenapa masuk radar'."""
+    out: list[str] = []
+    dr = s.get("done_ratio")
+    if dr is not None:
+        pct = dr * 100
+        if dr >= 0.55:
+            out.append(f"Pembeli agresif menyerap barang ({pct:.0f}% transaksi di sisi beli)")
+        elif dr <= 0.45:
+            out.append(f"Penjual masih lebih aktif ({pct:.0f}% transaksi di sisi beli)")
+        else:
+            out.append(f"Tekanan beli-jual relatif seimbang ({pct:.0f}% di sisi beli)")
+    rvol = s.get("rvol")
+    if rvol:
+        tag = " (ramai)" if rvol >= 2 else (" (sepi)" if rvol < 1 else "")
+        out.append(f"Volume {rvol:.1f}× rata-rata{tag}")
+    cir = s.get("close_in_range")
+    if cir is not None:
+        if cir >= 0.6:
+            out.append("Harga tutup kuat, dekat puncak hari")
+        elif cir <= 0.4:
+            out.append("Harga tutup lemah, di bawah rentang hari")
+        else:
+            out.append("Harga tutup di tengah rentang hari")
+    streak = s.get("broker_net_buy_streak", 0)
+    if streak >= 1:
+        out.append(f"Broker borong {streak} hari beruntun")
+    if own:
+        seg = f"Ritel cuma pegang {own['retail_pct']:.1f}% saham"
+        if own["retail_pct"] < 20:
+            seg += " — barang relatif terkunci di tangan kuat"
+        pp = own.get("retail_trend_pp")
+        if pp is not None and own.get("trend_months"):
+            if pp < 0:
+                seg += f"; porsi ritel menyusut {abs(pp):.1f} poin (barang pindah ke tangan kuat)"
+            elif pp > 0:
+                seg += f"; porsi ritel membengkak {pp:.1f} poin (indikasi distribusi)"
+        out.append(seg)
+    return out
+
 
 def format_alert(date: str, items: list[dict]) -> str:
     """items: list of {code, state, confidence, signals}. -> string HTML."""
@@ -131,6 +210,189 @@ def format_alert(date: str, items: list[dict]) -> str:
     lines.append("")
     lines.append("<i>Setup swing 10–20 hari (regime-aware). Entry = breakout "
                  "terkonfirmasi, bukan harga sekarang. Kelola risiko sendiri.</i>")
+    return "\n".join(lines)
+
+
+def format_batch_header(date: str, items: list[dict]) -> str:
+    """Satu baris pembuka sebelum rangkaian pesan per-sinyal (dikirim run_daily)."""
+    n = len(items)
+    return (
+        f"📡 <b>Markup Radar</b> · {_fmt_date_id(date)}\n"
+        f"{n} sinyal terpantau hari ini — rincian menyusul per saham 👇"
+    )
+
+
+def format_signal(date: str, it: dict) -> str:
+    """Format SATU sinyal jadi pesan Telegram ramah-awam (HTML), gaya auto-trading.
+
+    Dikirim per-chat (satu pesan per saham) oleh run_daily — pengganti blok
+    teknis padat lama. `format_alert` (gabungan) tetap dipakai untuk log konsol.
+    Semua string dari data di-escape; angka harga/level aman (numerik).
+    """
+    code = html.escape(str(it.get("code", "?")))
+    state = it.get("state", "")
+    emoji, label, meaning = _STATE_INFO.get(state, ("•", str(state), ""))
+    is_markup = state in _MARKUP_STATES
+
+    # Header + subjudul (tanggal, + kekuatan sinyal hanya utk setup MARKUP).
+    lines = [f"{emoji} <b>{code}</b> · {label}"]
+    sub = _fmt_date_id(date)
+    if is_markup:
+        sub += f" · Kekuatan sinyal {it.get('confidence', 0)}/100"
+    lines += [sub, ""]
+
+    if meaning:
+        lines += [f"<i>{html.escape(meaning)}</i>", ""]
+
+    # Kondisi pasar + kekuatan relatif vs IHSG (bahasa awam).
+    regime = it.get("regime")
+    rs = it.get("relative_strength")
+    if regime or rs is not None:
+        seg = "📊 Pasar (IHSG): " + {
+            "BULLISH": "sedang naik", "BEARISH": "sedang lemah",
+        }.get(regime, str(regime or "-"))
+        if rs is not None and rs > 0:
+            seg += f" · {code} lebih kuat +{rs:.1%} dari pasar"
+        elif rs is not None and rs < 0:
+            seg += f" · {code} tertinggal {abs(rs):.1%} dari pasar"
+        lines += [seg, ""]
+
+    # Bacaan (narasi Claude / fallback rule-based).
+    narr = it.get("narrative")
+    if narr:
+        lines += ["💡 <b>Bacaan</b>", html.escape(str(narr)), ""]
+
+    # Rencana trading — HANYA MARKUP_* (levels terisi; state lain tanpa entry).
+    lv = it.get("levels")
+    if is_markup and lv:
+        lines.append("🎯 <b>Rencana (kalau harga breakout — bukan harga sekarang)</b>")
+        lines.append(f"• Beli di atas: <b>{lv['entry']:g}</b>")
+        lines.append(f"• Batas rugi (SL): {lv['stop_loss']:g} (turun {lv['stop_pct']:.1%})")
+        lines.append(
+            f"• Target jual (TP): {lv['take_profit']:g} "
+            f"(untung ±{lv['rr_realized']:.1f}× dari risiko yang dipertaruhkan)"
+        )
+        lines += [f"• Perkiraan tahan: ~{lv['est_hold_days']} hari", ""]
+
+    # Kenapa masuk radar (sinyal teknis diterjemahkan ke bahasa awam).
+    bullets = _why_bullets(it.get("signals", {}), it.get("ownership"))
+    if bullets:
+        lines.append("🔍 <b>Kenapa masuk radar</b>")
+        lines += [f"• {html.escape(b)}" for b in bullets]
+        lines.append("")
+
+    # Rotasi broker: interpretasi bila rotasi bullish, kalau tidak angka ringkas.
+    rot = it.get("rotation")
+    if rot:
+        retail, foreign, smart = rot["retail_net"], rot["foreign_net"], rot["smart_net"]
+        if retail < 0 and (foreign > 0 or smart > 0):
+            lines.append("🔄 Ritel lepas barang, asing/smart money menampung "
+                         "(rotasi ke tangan kuat)")
+        else:
+            lines.append(
+                f"🔄 Aliran broker — ritel {fmt_rp(retail)} · "
+                f"asing {fmt_rp(foreign)} · smart {fmt_rp(smart)}"
+            )
+
+    # Orang dalam (insider): akumulasi = konfirmasi, divestasi saat naik = red flag.
+    ins = it.get("insider")
+    if ins:
+        net = ins.get("net_change_pct", 0.0)
+        wd = ins.get("window_days", 30)
+        n = ins.get("n_reports", 0)
+        if net > 0:
+            seg = f"👤 Orang dalam ({wd}h): beli bersih +{net:.1f} poin kepemilikan · {n} laporan ✅"
+        elif net < 0:
+            seg = f"👤 Orang dalam ({wd}h): jual bersih {net:.1f} poin kepemilikan · {n} laporan ⚠️"
+        else:
+            seg = f"👤 Orang dalam ({wd}h): {n} laporan (netral)"
+        if ins.get("last_purpose"):
+            seg += f" · terakhir: {html.escape(str(ins['last_purpose']))}"
+        lines.append(seg)
+
+    # Agenda korporasi mendatang (RUPS/dividen/dst).
+    ca = it.get("corp_actions")
+    if ca:
+        lines.append("📅 Agenda: " + " · ".join(
+            f"{html.escape(str(c['label']))} {html.escape(_fmt_date_id(str(c['date'])))}"
+            for c in ca[:3]
+        ))
+
+    lines.append("")
+    if is_markup:
+        lines.append("⚠️ <i>Bukan ajakan beli/jual. Masuk hanya kalau breakout "
+                     "terkonfirmasi, bukan di harga sekarang. Atur risiko & "
+                     "ukuran posisi sendiri.</i>")
+    else:
+        lines.append("⚠️ <i>Bukan ajakan beli/jual. Ini baru tahap pantau — "
+                     "belum ada sinyal masuk. Kelola risiko sendiri.</i>")
+    return "\n".join(lines)
+
+
+# --- Sinyal LIVE order book (dari live_watch): tag verdict -> bahasa awam ---
+_LIVE_VERDICT_ID = {
+    "FAKE_OVER": "Tembok jual ternyata palsu — bandar menahan harga sambil "
+                 "menyerap barang (sinyal positif)",
+    "DEMAND_REAL": "Antrian beli tebal dan asli — permintaan kuat (sinyal positif)",
+    "DEMAND_DOMINAN": "Antrian beli jauh lebih dominan dibanding jual",
+    "PASSIVE_ACCUM": "Ada yang diam-diam menampung barang di antrian beli",
+    "SUPPLY_REAL": "Tembok jual tampak asli — tekanan jual nyata, hati-hati",
+    "FAKE_BID": "Antrian beli tebal tapi palsu — waspada jebakan",
+    "PASSIVE_DISTRIB": "Ada yang diam-diam melepas barang",
+    "SEIMBANG": "Antrian beli dan jual relatif seimbang",
+    "SUPPLY_DOMINAN": "Antrian jual lebih dominan",
+    "RITEL_NOISE": "Ramai order ritel kecil, arah belum jelas",
+    "NO_DATA": "Data antrian belum tersedia",
+}
+_LIVE_WALL_PULLED = ("Tembok jual tiba-tiba ditarik atau dimakan — "
+                     "sering jadi pemicu harga jebol naik")
+
+
+def format_live_signal(
+    code: str,
+    *,
+    verdict: str | None = None,
+    wall_pulled: bool = False,
+    imb: float | None = None,
+    accum_label: str = "",
+    time_str: str = "",
+) -> str:
+    """Pesan Telegram ramah-awam untuk sinyal LIVE order book (dari live_watch).
+
+    Dua pemicu: `wall_pulled` (tembok jual dicabut/dimakan saat akumulasi) atau
+    transisi ke `verdict` bullish. Angka order book mentah (lot/order, tag verdict
+    teknis) diterjemahkan ke bahasa sehari-hari.
+    """
+    safe = html.escape(str(code))
+    reason = (
+        _LIVE_WALL_PULLED if wall_pulled
+        else _LIVE_VERDICT_ID.get(verdict or "", str(verdict or ""))
+    )
+
+    head = f"🟢 <b>{safe}</b> · Sinyal Live"
+    if time_str:
+        head += f" · {html.escape(time_str)}"
+    lines = [head, "", f"<i>{html.escape(reason)}</i>", ""]
+
+    if imb is not None:
+        if imb >= 1.05:
+            lines.append(f"📊 Antrian beli {imb:.1f}× lebih tebal dari antrian jual")
+        elif 0 < imb <= 0.95:
+            lines.append(f"📊 Antrian jual {1 / imb:.1f}× lebih tebal dari antrian beli")
+        else:
+            lines.append("📊 Antrian beli dan jual seimbang")
+
+    # Status akumulasi broker dari label ("AKUM/6d" / "no-akum" / "?").
+    if accum_label.startswith("AKUM"):
+        days = accum_label.split("/", 1)[1].rstrip("d") if "/" in accum_label else ""
+        extra = f" ({days} hari beruntun)" if days else ""
+        lines.append(f"🏦 Broker masih memborong{extra}")
+    elif accum_label == "no-akum":
+        lines.append("🏦 Broker belum terlihat memborong")
+
+    lines.append("")
+    lines.append("⚠️ <i>Pantauan real-time order book, bukan ajakan beli/jual. "
+                 "Atur timing &amp; risiko sendiri.</i>")
     return "\n".join(lines)
 
 
