@@ -29,11 +29,25 @@ def close_in_range(high: float, low: float, close: float) -> float:
     return float((close - low) / rng)
 
 
-def queue_imbalance(bid_volume: float, offer_volume: float) -> float:
-    """S5: bid_volume / offer_volume di close. >1 demand menumpuk."""
+def queue_imbalance(
+    bid_volume: float, offer_volume: float, *, cap: float | None = None
+) -> float:
+    """S5: bid_volume / offer_volume di close. >1 demand menumpuk.
+
+    `cap` (opsional, dipakai jalur EOD): batas rasio yang "masih bisa dipercaya".
+    Rasio di ATAS cap = buku offer nyaris kosong (close near-ARA, sisi jual tinggal
+    recehan) → rasio meledak (bisa ratusan ribu) dan TAK andal sebagai konfirmasi
+    "demand terkendali menumpuk". Diperlakukan seperti offer<=0 → 0.0 (tak bisa
+    dibandingkan; JANGAN dianggap konfirmasi) supaya tak minting MARKUP_CONFIRMED
+    palsu. Default None = tanpa cap → dipakai jalur LIVE tape-reading yang sudah
+    punya proteksi buku tipis sendiri (lot_per_order / RITEL_NOISE).
+    """
     if offer_volume <= 0:
         return 0.0
-    return float(bid_volume / offer_volume)
+    ratio = float(bid_volume / offer_volume)
+    if cap is not None and ratio > cap:
+        return 0.0
+    return ratio
 
 
 def queue_verdict(imbalance: float, demand: float = 1.0, neutral_low: float = 0.8) -> str:

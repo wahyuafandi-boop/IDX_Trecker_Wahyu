@@ -53,6 +53,35 @@ def test_queue_imbalance_demand():
     assert price_volume.queue_imbalance(200, 100) == 2.0
 
 
+def test_queue_imbalance_cap_zeroes_exploded_ratio():
+    # Buku offer nyaris kosong (near-ARA) -> rasio meledak; dgn cap dianggap tak
+    # andal (0.0) supaya tak lolos gate CONFIRMED. Tanpa cap tetap mentah (live).
+    assert price_volume.queue_imbalance(100_000, 1, cap=10.0) == 0.0
+    assert price_volume.queue_imbalance(100_000, 1) == 100_000.0
+
+
+def test_queue_imbalance_cap_keeps_genuine_demand():
+    # Rasio wajar (<= cap) lolos apa adanya -> masih bisa mengonfirmasi.
+    assert price_volume.queue_imbalance(300, 100, cap=10.0) == 3.0
+    assert price_volume.queue_imbalance(1000, 100, cap=10.0) == 10.0  # tepat cap: lolos
+
+
+def test_compute_signals_applies_queue_cap_from_thresholds():
+    # Wiring EOD: cap dari thresholds men-nol-kan rasio meledak; tanpa cap = mentah.
+    from markup_radar.signals import StockData, compute_signals
+
+    df = pd.DataFrame({
+        "open": [100, 100, 100], "high": [110, 110, 110],
+        "low": [90, 90, 90], "close": [100, 100, 100], "volume": [1000, 1000, 1000],
+    })
+    data = StockData(code="TST", ohlcv=df,
+                     closing_bid_volume=100_000, closing_offer_volume=1)
+    capped = compute_signals(data, {"queue_imbalance_cap": 10.0}, {"volume_ma": 20})
+    assert capped["queue_imbalance"] == 0.0
+    raw = compute_signals(data, {}, {"volume_ma": 20})
+    assert raw["queue_imbalance"] == 100_000.0
+
+
 def test_queue_verdict_labels():
     # demand default 1.0, neutral_low 0.8
     assert price_volume.queue_verdict(1.5) == "DEMAND_DOMINAN"

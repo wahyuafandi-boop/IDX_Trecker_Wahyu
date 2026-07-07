@@ -69,9 +69,11 @@ def compute_signals(
         # S4
         "broker_concentration": broker_flow.broker_concentration(data.broker_summary, top_n),
         "broker_turning_net_sell": broker_flow.broker_turning_net_sell(data.broker_daily_net),
-        # S5
+        # S5 (cap opsional: rasio meledak dari buku offer tipis di-nol-kan agar
+        # tak minting CONFIRMED palsu — lihat price_volume.queue_imbalance).
         "queue_imbalance": price_volume.queue_imbalance(
-            data.closing_bid_volume, data.closing_offer_volume
+            data.closing_bid_volume, data.closing_offer_volume,
+            cap=t.get("queue_imbalance_cap"),
         ),
         # S6
         "rvol": rvol_val,

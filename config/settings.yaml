@@ -48,6 +48,12 @@ thresholds:
                               # LIVE-only (order book tak historis → backtest S5=0,
                               # CONFIRMED tak muncul). Tune 1.0–1.2 setelah data live
                               # terkumpul; >1.0 = butuh demand antri lebih dominan.
+  queue_imbalance_cap: 10.0   # S5 (EOD): rasio bid/offer di ATAS ini dianggap buku
+                              # offer nyaris kosong (close near-ARA) → tak andal,
+                              # di-nol-kan agar tak minting CONFIRMED palsu. Kalibrasi
+                              # data 2026-07 (n=437): p50 rasio ~1.1, p90 ~37, ekor
+                              # sampai 571rb (artefak offer tipis). 10 = loloskan demand
+                              # wajar 1–10x, tolak ekor absurd. Jalur LIVE tak pakai cap.
   queue_top_levels: 4         # S5 live: jumlah baris bid/offer "nyata" yg dibaca
                               # (bandarmologi: 4 teratas; level dalam sering diada-ada).
   queue_bigmoney_lot_per_order: 20  # S5 live: lot/order (lot/freq) top-N >= ini =
