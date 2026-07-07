@@ -88,7 +88,12 @@ regime_profiles:
   BEARISH:
     rvol_spike: 2.5           # NAIK di market lemah, bukan turun (F8: tetap; n bear terlalu kecil)
     require_relative_strength: true   # F8: ablation inconclusive (n=1v2) -> KEEP (default selektif)
-    rs_min: 0.0               # >0 = harus outperform; 0 = minimal seimbang dgn IHSG
+    rs_min: -0.01             # toleransi knife-edge: lolos asal tak kalah >1% dari IHSG
+                              # (tak wajib menang). rs_min 0.0 memblok setup layak yang
+                              # kalah setipis pembulatan — mis. ISAT 3 Jul (queue CONFIRMED)
+                              # ke-veto padahal RS ~0. Dampak terukur data 2026-07: +2 sinyal
+                              # saja (COCO START + ISAT CONFIRMED pertama), FLAT -0.005..-0.05
+                              # (rvol 2.5 tetap plafon) -> pelonggaran terukur, bukan floodgate.
     atr_mult_sl: 1.8
     rr_target: 2.0
     risk_per_trade: 0.005     # potong setengah
