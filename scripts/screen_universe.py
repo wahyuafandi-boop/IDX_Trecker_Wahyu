@@ -40,12 +40,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from markup_radar.config import load_settings  # noqa: E402
 
-# Default bila blok `screener` belum ada di settings.yaml. Diverifikasi via probe
-# live API 2026-06-25: engine screener TIDAK punya fungsi indikator (ema/sma -> 400
-# "Unknown function"), hanya variabel skalar (close/value/volume/open/high/low/
-# change + rasio fundamental per/eps/roa) + operator 'and'/'or'. RVOL-spike & tren
-# tetap dihitung run_daily.py. category "COMPOSITE" balik KOSONG di endpoint ini,
-# jadi pakai gabungan 11 kategori sektor IDX = seluruh saham BEI (~900).
+# Default bila blok `screener` belum ada di settings.yaml. Probe live API
+# 2026-06-25, di-update 2026-07-07: `sma()` KINI DIDUKUNG (`volume > 2 *
+# sma("volume", 10)` -> HTTP 201; klaim lama "ema/sma -> 400 Unknown function"
+# USANG, API di-upgrade). `ema()` belum dikonfirmasi (probe kena 429 throttle).
+# Bahasa formula = variabel skalar (close/value/volume/open/high/low/change +
+# fundamental per/eps/roa) + `sma()` + operator 'and'/'or'. Default tetap filter
+# likuiditas kasar; RVOL-spike & tren dihitung run_daily.py (bisa di-pre-filter
+# via sma di formula, tapi mengorbankan pipeline ACCUMULATION — lihat settings.yaml).
+# category "COMPOSITE" balik KOSONG, jadi pakai gabungan 11 kategori sektor IDX (~900).
 _DEFAULT_FORMULA = "close > 100 and value > 3000000000"
 _DEFAULT_CATEGORY = [
     "IDXENERGY", "IDXBASIC", "IDXINDUST", "IDXNONCYC", "IDXCYCLIC", "IDXHEALTH",

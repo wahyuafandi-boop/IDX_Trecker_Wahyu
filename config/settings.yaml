@@ -156,17 +156,22 @@ sheets:
 # Auto-screener: refresh watchlist_today.txt dari Invezgo (POST /screener/screen).
 # Dijalankan run_screen.sh di VPS sebelum run_eod.sh.
 #
-# CATATAN PENTING (diverifikasi via probe live API 2026-06-25):
+# CATATAN PENTING (probe live API 2026-06-25, di-update 2026-07-07):
 #  - category "COMPOSITE" balik KOSONG di endpoint screener. Universe penuh
 #    (~900 saham) diperoleh dari gabungan 11 kategori sektor IDX di bawah.
-#  - Engine formula screener TIDAK punya fungsi indikator: ema()/sma() -> HTTP 400
-#    "Unknown function". Bahasa formula hanya variabel skalar per-saham (close,
-#    value, volume, open, high, low, change, + rasio fundamental: per, eps, roa,
-#    dst) + operator 'and'/'or' (BUKAN '&&'). Jadi screener = filter likuiditas/
-#    harga kasar; deteksi RVOL-spike & tren (S6/S7) TETAP dikerjakan run_daily.py
-#    atas watchlist hasil screen ini (separasi tugas, bukan kehilangan logika).
-#  - 'close > 100 and value > 3000000000' -> ~178 saham likuid (value harian >3M).
-#    max_watchlist memotongnya; perketat 'value' atau naikkan cap untuk tuning jumlah.
+#  - Fungsi indikator: `sma()` KINI DIDUKUNG (probe 2026-07-07: `volume >
+#    2 * sma("volume", 10)` -> HTTP 201; klaim lama 25 Jun "ema/sma -> 400 Unknown
+#    function" sudah USANG — API di-upgrade). `ema()` belum dikonfirmasi (probe
+#    kena 429 throttle; endpoint ini rewel utk burst, tapi 1 call/run aman).
+#    Bahasa formula: variabel skalar (close/value/volume/open/high/low/change +
+#    fundamental per/eps/roa) + `sma()` + operator 'and'/'or' (BUKAN '&&').
+#  - Formula PRODUKSI saat ini sengaja tetap filter likuiditas kasar
+#    'close > 100 and value > 3000000000' (~178 saham, dipotong max_watchlist);
+#    RVOL-spike & tren (S6/S7) tetap dihitung run_daily.py atas watchlist ini.
+#    PELUANG (belum dipasang): tambah 'and volume > 2 * sma("volume", 20)' untuk
+#    pre-filter kandidat rvol tinggi — TAPI itu bakal starve pipeline
+#    ACCUMULATION_ONGOING (akumulasi = volume sepi). Perlu watchlist terpisah /
+#    formula OR kalau mau markup + akumulasi dua-duanya.
 screener:
   enabled: true
   category: ["IDXENERGY", "IDXBASIC", "IDXINDUST", "IDXNONCYC", "IDXCYCLIC", "IDXHEALTH", "IDXFINANCE", "IDXPROPERT", "IDXTECHNO", "IDXINFRA", "IDXTRANS"]
