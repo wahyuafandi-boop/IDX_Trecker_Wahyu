@@ -85,6 +85,15 @@ def _why_bullets(s: dict, own: dict | None) -> list[str]:
     streak = s.get("broker_net_buy_streak", 0)
     if streak >= 1:
         out.append(f"Broker borong {streak} hari beruntun")
+    # S11 compatibility: yang borong memang penggerak harga, atau cuma numpuk?
+    corr = s.get("flow_price_corr")
+    if corr is not None:
+        if corr >= 0.5:
+            out.append(f"Harga terbukti bergerak searah broker yang borong "
+                       f"(compatibility {corr:.0%})")
+        elif corr <= 0.1 and streak >= 2:
+            out.append(f"⚠️ Broker borong tapi harga belum mengikuti "
+                       f"(compatibility rendah, {corr:.0%})")
     if own:
         # Teori float control: makin KECIL porsi ritel makin bagus (barang
         # terkunci di bandar) — jangan pakai kata "cuma" saat angkanya besar.
@@ -138,13 +147,16 @@ def format_alert(date: str, items: list[dict]) -> str:
             head += f" · RS {it['relative_strength']:+.1%}"
         lines.append(head)
 
-        # Baris sinyal dasar.
-        lines.append(
+        # Baris sinyal dasar (+ S11 compatibility bila ada bacaan).
+        base = (
             f"   done {s.get('done_ratio', 0):.2f} · "
             f"RVOL {s.get('rvol', 0):.1f}x · "
             f"close {s.get('close_in_range', 0):.2f} · "
             f"streak {s.get('broker_net_buy_streak', 0)}"
         )
+        if s.get("flow_price_corr") is not None:
+            base += f" · comp {s['flow_price_corr']:.2f}"
+        lines.append(base)
 
         # Baris level — terisi utk MARKUP_* (rencana trade, spec D5/§4.8) dan
         # ACCUMULATION_ONGOING (panduan pantau; entry = bersyarat breakout).
@@ -378,6 +390,14 @@ _LIVE_VERDICT_ID = {
 }
 _LIVE_WALL_PULLED = ("Tembok jual tiba-tiba ditarik atau dimakan — "
                      "sering jadi pemicu harga jebol naik")
+# Versi terpilah cabut-vs-dimakan (dibedakan via bar intraday di live_watch):
+_LIVE_WALL_VERDICT = {
+    "EATEN": "Tembok jual DIMAKAN pembeli — permintaan asli menyerap barang "
+             "di level tembok. Ini timing entry klasik tape-reading",
+    "PULLED": "Tembok jual DICABUT, bukan dimakan — penjual besar menarik "
+              "ordernya (fake offer terkonfirmasi). Positif, tapi tunggu "
+              "pembeli nyata muncul sebelum masuk",
+}
 
 
 def format_live_signal(
@@ -385,6 +405,7 @@ def format_live_signal(
     *,
     verdict: str | None = None,
     wall_pulled: bool = False,
+    wall_verdict: str | None = None,
     imb: float | None = None,
     accum_label: str = "",
     time_str: str = "",
@@ -392,14 +413,16 @@ def format_live_signal(
     """Pesan Telegram ramah-awam untuk sinyal LIVE order book (dari live_watch).
 
     Dua pemicu: `wall_pulled` (tembok jual dicabut/dimakan saat akumulasi) atau
-    transisi ke `verdict` bullish. Angka order book mentah (lot/order, tag verdict
-    teknis) diterjemahkan ke bahasa sehari-hari.
+    transisi ke `verdict` bullish. `wall_verdict` ("EATEN"/"PULLED"/None) memilah
+    penyebab susutnya tembok bila live_watch berhasil cek bar intraday; None =
+    tak terbedakan -> pesan generik lama. Angka order book mentah (lot/order,
+    tag verdict teknis) diterjemahkan ke bahasa sehari-hari.
     """
     safe = html.escape(str(code))
-    reason = (
-        _LIVE_WALL_PULLED if wall_pulled
-        else _LIVE_VERDICT_ID.get(verdict or "", str(verdict or ""))
-    )
+    if wall_pulled:
+        reason = _LIVE_WALL_VERDICT.get(wall_verdict or "", _LIVE_WALL_PULLED)
+    else:
+        reason = _LIVE_VERDICT_ID.get(verdict or "", str(verdict or ""))
 
     head = f"🟢 <b>{safe}</b> · Sinyal Live"
     if time_str:

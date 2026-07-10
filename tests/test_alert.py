@@ -125,6 +125,30 @@ def test_markup_signal_keeps_trade_plan_block():
     assert "📐" not in out
 
 
+def test_compatibility_bullet_high_and_low():
+    # Corr tinggi = poin plus; corr rendah SAAT ada streak akum = warning.
+    hi = _why_bullets({"broker_net_buy_streak": 3, "flow_price_corr": 0.62}, None)
+    assert any("searah broker" in b and "62%" in b for b in hi)
+    lo = _why_bullets({"broker_net_buy_streak": 3, "flow_price_corr": 0.02}, None)
+    assert any("belum mengikuti" in b and b.startswith("⚠️") for b in lo)
+    # Tanpa bacaan (None) atau tanpa akumulasi -> tak ada bullet compatibility.
+    none = _why_bullets({"broker_net_buy_streak": 3, "flow_price_corr": None}, None)
+    assert not any("compatibility" in b for b in none)
+    no_akum = _why_bullets({"broker_net_buy_streak": 0, "flow_price_corr": 0.02}, None)
+    assert not any("compatibility" in b for b in no_akum)
+
+
+def test_live_signal_wall_verdict_messages():
+    from markup_radar.alert.telegram import format_live_signal
+    eaten = format_live_signal("FUTR", wall_pulled=True, wall_verdict="EATEN")
+    assert "DIMAKAN" in eaten and "timing entry" in eaten
+    pulled = format_live_signal("FUTR", wall_pulled=True, wall_verdict="PULLED")
+    assert "DICABUT" in pulled and "tunggu" in pulled
+    # Tak terbedakan -> pesan generik lama (kompatibel mundur).
+    generic = format_live_signal("FUTR", wall_pulled=True, wall_verdict=None)
+    assert "ditarik atau dimakan" in generic
+
+
 def test_ownership_wording_follows_retail_pct():
     # <20% = poin plus ("cuma" boleh); >=50% = poin minus (tanpa "cuma").
     low = _why_bullets({}, {"retail_pct": 12.0})[-1]

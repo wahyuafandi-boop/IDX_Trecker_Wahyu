@@ -33,7 +33,7 @@ from markup_radar.alert import (
 from markup_radar.config import load_codes_file, load_settings, parse_codes
 from markup_radar.ingest import InvezgoClient
 from markup_radar.ingest.broker_client import (
-    fetch_broker_daily_net,
+    fetch_broker_daily_net_dated,
     fetch_closing_queue,
 )
 from markup_radar.ingest.done_client import (
@@ -240,12 +240,18 @@ def build_stock_data(
     windows = cfg.windows
     ohlc_from, ohlc_to = _date_range(date, max(windows.get("volume_ma", 20) * 2, 60))
     streak_lb = windows.get("broker_streak_lookback", 5)
+    comp_lb = windows.get("compatibility_lookback", 45)
 
     ohlcv = fetch_ohlcv(client, code, ohlc_from, ohlc_to)              # 1
     done = fetch_done_breakdown(client, code, date.isoformat())       # 2
     queue = fetch_closing_queue(client, code)                         # 3
-    # Streak S3 dari 1 call inventory-chart (bukan loop per hari).
-    daily_net = fetch_broker_daily_net(client, code, *_date_range(date, streak_lb))  # 4
+    # S3 streak + S11 compatibility dari 1 call inventory-chart yang sama —
+    # range diperpanjang utk korelasi; streak tetap dipotong ke window lama
+    # (streak_lb) agar nilainya tak berubah vs histori sinyal.
+    dated_net = fetch_broker_daily_net_dated(
+        client, code, *_date_range(date, max(streak_lb, comp_lb)))    # 4
+    streak_cut = (date - dt.timedelta(days=streak_lb)).isoformat()
+    daily_net = [n for d, n in dated_net if str(d)[:10] >= streak_cut]
 
     return StockData(
         code=code,
@@ -253,6 +259,7 @@ def build_stock_data(
         done_offer_value=done["done_offer_value"],
         done_bid_value=done["done_bid_value"],
         broker_daily_net=daily_net,
+        broker_daily_net_dated=dated_net,
         closing_bid_volume=queue["bid_volume"],
         closing_offer_volume=queue["offer_volume"],
         ihsg_close=ihsg_close,

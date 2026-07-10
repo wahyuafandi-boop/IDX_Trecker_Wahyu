@@ -267,3 +267,101 @@ def test_relative_strength_underperform_negative():
 def test_relative_strength_insufficient_data_is_zero():
     # Kurang dari window+1 data -> 0.0 (tak menggate apa-apa).
     assert market.relative_strength([100, 100], [100, 100, 100], window=20) == 0.0
+
+
+# ---- S11 flow-price compatibility (korelasi net akumulator vs return) ----
+def _comp_fixture(rets_follow_flow: bool, n: int = 12):
+    """OHLCV + dated_net sinkron by-date; harga ikut/lawan arah flow."""
+    import numpy as np
+    dates = pd.date_range("2026-06-01", periods=n, freq="B")
+    nets = [(1.0 if i % 2 == 0 else -1.0) * (1e9 + i * 1e7) for i in range(n)]
+    close = [1000.0]
+    for i in range(1, n):
+        step = 0.01 if nets[i] > 0 else -0.01
+        if not rets_follow_flow:
+            step = -step
+        close.append(close[-1] * (1 + step + np.random.default_rng(i).normal(0, 1e-4)))
+    df = pd.DataFrame({
+        "date": dates, "open": close, "high": close, "low": close,
+        "close": close, "volume": [1e6] * n,
+    })
+    dated = [(d.strftime("%Y-%m-%d"), nets[i]) for i, d in enumerate(dates)]
+    return dated, df
+
+
+def test_flow_price_compatibility_high_when_price_follows_flow():
+    dated, df = _comp_fixture(rets_follow_flow=True)
+    corr = broker_flow.flow_price_compatibility(dated, df)
+    assert corr is not None and corr > 0.8
+
+
+def test_flow_price_compatibility_low_when_price_ignores_flow():
+    # Kasus BUMI: broker akum tapi harga bergerak berlawanan -> corr negatif.
+    dated, df = _comp_fixture(rets_follow_flow=False)
+    corr = broker_flow.flow_price_compatibility(dated, df)
+    assert corr is not None and corr < -0.8
+
+
+def test_flow_price_compatibility_none_when_insufficient():
+    dated, df = _comp_fixture(rets_follow_flow=True, n=5)
+    assert broker_flow.flow_price_compatibility(dated, df, min_overlap=8) is None
+    assert broker_flow.flow_price_compatibility([], df) is None
+
+
+def test_compute_signals_exposes_flow_price_corr_none_by_default():
+    # StockData tanpa dated net (mis. demo/backtest lama) -> None, bukan error.
+    from markup_radar.signals import StockData, compute_signals
+    df = pd.DataFrame({
+        "date": pd.date_range("2026-06-01", periods=3, freq="B"),
+        "open": [100.0] * 3, "high": [101.0] * 3, "low": [99.0] * 3,
+        "close": [100.0, 100.5, 101.0], "volume": [1e6] * 3,
+    })
+    s = compute_signals(StockData(code="X", ohlcv=df), {}, {"volume_ma": 20})
+    assert s["flow_price_corr"] is None
+
+
+# ---- Cabut vs Dimakan (wall_drop_verdict) ----
+import datetime as _dt
+
+
+def _bars(entries):
+    return [{"time": t, "high": h, "volume": v} for t, h, v in entries]
+
+
+def test_wall_drop_eaten_when_price_touches_wall_with_volume():
+    since = _dt.datetime(2026, 7, 10, 10, 0)
+    bars = _bars([
+        ("2026-07-10T09:30:00", 248.0, 500),   # sebelum siklus lalu — diabaikan
+        ("2026-07-10T10:01:00", 250.0, 1200),  # sentuh tembok 250 + volume
+    ])
+    assert price_volume.wall_drop_verdict(bars, 250.0, since=since) == "EATEN"
+
+
+def test_wall_drop_pulled_when_price_never_touches_wall():
+    since = _dt.datetime(2026, 7, 10, 10, 0)
+    bars = _bars([("2026-07-10T10:01:00", 246.0, 800)])
+    assert price_volume.wall_drop_verdict(bars, 250.0, since=since) == "PULLED"
+
+
+def test_wall_drop_pulled_when_no_trades_since_cycle():
+    # Tembok menyusut tapi nol transaksi sejak siklus lalu -> pasti dicabut.
+    since = _dt.datetime(2026, 7, 10, 10, 0)
+    bars = _bars([("2026-07-10T09:30:00", 251.0, 900)])
+    assert price_volume.wall_drop_verdict(bars, 250.0, since=since) == "PULLED"
+
+
+def test_wall_drop_none_when_unclassifiable():
+    since = _dt.datetime(2026, 7, 10, 10, 0)
+    # Timestamp tak terparse padahal filter `since` diminta -> jangan menebak.
+    bars = _bars([("???", 251.0, 900)])
+    assert price_volume.wall_drop_verdict(bars, 250.0, since=since) is None
+    assert price_volume.wall_drop_verdict([], 250.0, since=since) is None
+    assert price_volume.wall_drop_verdict(_bars([("2026-07-10T10:01:00", 251.0, 1)]),
+                                          0.0, since=since) is None
+
+
+def test_wall_drop_epoch_millis_timestamps_supported():
+    since = _dt.datetime(2026, 7, 10, 10, 0)
+    ms = int(_dt.datetime(2026, 7, 10, 10, 5).timestamp() * 1000)
+    bars = [{"t": ms, "h": 250.0, "v": 300}]
+    assert price_volume.wall_drop_verdict(bars, 250.0, since=since) == "EATEN"

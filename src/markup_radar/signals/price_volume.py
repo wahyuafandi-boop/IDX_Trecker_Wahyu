@@ -237,3 +237,90 @@ def donchian(high, low, lookback: int = 20) -> tuple[float, float]:
     if h.empty or l.empty:
         return 0.0, 0.0
     return float(h.max()), float(l.min())
+
+
+# --- Cabut vs Dimakan (tape-reading): tembok offer menyusut karena apa? -------
+
+def _bar_field(bar: dict, *names: str):
+    """Ambil field bar intraday dengan toleransi variasi nama (high/h, volume/v/vol)."""
+    for n in names:
+        for k, v in bar.items():
+            if str(k).lower() == n and v is not None:
+                return v
+    return None
+
+
+def _parse_bar_time(value) -> "dt_.datetime | None":
+    """Waktu bar intraday -> datetime lokal tz-naive. None bila tak bisa diparse.
+
+    Toleran: epoch detik/milidetik (angka), string ISO (buang 'Z'/offset),
+    atau 'HH:MM(:SS)' saja (digabung dengan tanggal hari ini).
+    """
+    import datetime as dt_
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        ts = float(value)
+        if ts > 1e11:          # milidetik
+            ts /= 1000.0
+        try:
+            return dt_.datetime.fromtimestamp(ts)
+        except (OverflowError, OSError, ValueError):
+            return None
+    s = str(value).strip().replace("Z", "")
+    try:
+        parsed = dt_.datetime.fromisoformat(s)
+        # ISO ber-offset (+07:00) -> buang tzinfo, jam sudah lokal-ish; yang
+        # penting konsisten antar bar utk filter "sejak siklus lalu".
+        return parsed.replace(tzinfo=None)
+    except ValueError:
+        pass
+    try:                        # 'HH:MM' / 'HH.MM' / 'HH:MM:SS'
+        hhmm = s.replace(".", ":")
+        t = dt_.time.fromisoformat(hhmm if hhmm.count(":") >= 1 else f"{hhmm}:00")
+        return dt_.datetime.combine(dt_.date.today(), t)
+    except ValueError:
+        return None
+
+
+def wall_drop_verdict(bars, wall_price: float, since=None) -> str | None:
+    """Bedakan tembok offer DIMAKAN vs DICABUT (ajaran tape-reading: "dicabut apa
+    dimakan — liat done detail"). `bars` = bar intraday mentah (list of dict).
+
+    - "EATEN"  : sejak `since` ada perdagangan menyentuh harga tembok
+                 (high >= wall_price, volume > 0) -> demand asli menyerap barang
+                 = timing entry klasik.
+    - "PULLED" : harga TIDAK pernah menyentuh level tembok sejak `since` -> lot
+                 hilang pasti ditarik (fake offer terkonfirmasi; positif tapi
+                 belum ada demand nyata).
+    - None     : data tak ada / shape tak dikenali / timestamp tak bisa diparse
+                 padahal `since` diminta -> jangan menebak.
+    """
+    if wall_price is None or wall_price <= 0 or not bars:
+        return None
+    parsed: list[tuple] = []       # (time|None, high, volume)
+    for bar in bars:
+        if not isinstance(bar, dict):
+            continue
+        high = _bar_field(bar, "high", "h")
+        vol = _bar_field(bar, "volume", "v", "vol")
+        t = _parse_bar_time(_bar_field(bar, "time", "date", "timestamp", "t"))
+        try:
+            parsed.append((t, float(high), float(vol) if vol is not None else 0.0))
+        except (TypeError, ValueError):
+            continue
+    if not parsed:
+        return None
+    if since is not None:
+        timed = [p for p in parsed if p[0] is not None]
+        if not timed:
+            return None            # tak bisa filter waktu -> jangan menebak
+        window = [p for p in timed if p[0] >= since]
+        # Tak ada bar sejak siklus lalu = tak ada transaksi sama sekali ->
+        # tembok menyusut tanpa perdagangan = pasti dicabut.
+        if not window:
+            return "PULLED"
+        parsed = window
+    high_since = max(p[1] for p in parsed)
+    vol_since = sum(p[2] for p in parsed)
+    return "EATEN" if (high_since >= wall_price and vol_since > 0) else "PULLED"

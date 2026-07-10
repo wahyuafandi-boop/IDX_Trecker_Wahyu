@@ -24,6 +24,7 @@ class StockData:
     done_bid_value: float = 0.0               # S1/S2 (done at bid = sell)
     broker_summary: pd.DataFrame = field(default_factory=pd.DataFrame)  # S4
     broker_daily_net: list[float] = field(default_factory=list)         # S3 (kronologis)
+    broker_daily_net_dated: list[tuple[str, float]] = field(default_factory=list)  # S11 (date, net)
     closing_bid_volume: float = 0.0           # S5
     closing_offer_volume: float = 0.0         # S5
     foreign_net_value: float = 0.0            # S8
@@ -92,4 +93,10 @@ def compute_signals(
         "relative_strength": market.relative_strength(
             df["close"], data.ihsg_close, w.get("rs_window", 20)
         ) if not df.empty else 0.0,
+        # S11 compatibility (konteks, TIDAK masuk gate classifier): korelasi net
+        # broker akumulator vs return harian — None = data kurang, bukan 0.
+        "flow_price_corr": broker_flow.flow_price_compatibility(
+            data.broker_daily_net_dated, df,
+            min_overlap=int(w.get("compatibility_min_overlap", 8)),
+        ),
     }

@@ -198,4 +198,8 @@ def fetch_closing_queue(
         "offer_lot_per_order": _lpo(offer_top_lot, offer_top_freq),
         "n_bid_levels": float(len(bid_levels)),
         "n_offer_levels": float(len(offer_levels)),
+        # Harga level terbaik — dipakai live_watch utk bedakan tembok offer
+        # DIMAKAN (harga menyentuh level) vs DICABUT (tak pernah disentuh).
+        "bid_best_price": bid_levels[0]["price"] if bid_levels else 0.0,
+        "offer_best_price": offer_levels[0]["price"] if offer_levels else 0.0,
     }

@@ -19,6 +19,8 @@ windows:
   volume_ma: 20        # MA20 untuk RVOL (S6)
   ihsg_ma: 50          # MA50 IHSG (S9) + regime selector (BULLISH/BEARISH)
   broker_streak_lookback: 5  # berapa hari ke belakang untuk net-buy streak (S3)
+  compatibility_lookback: 45  # hari kalender S11 compatibility — korelasi net broker
+                              # akumulator vs return harian (1 call sama dgn S3)
   rs_window: 20        # S10 relative strength (return saham - return IHSG)
   donchian_lookback: 20  # resis/support untuk trade levels (entry/SL/TP)
 
