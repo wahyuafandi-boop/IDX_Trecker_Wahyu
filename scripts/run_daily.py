@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import os
 import sys
 import tempfile
@@ -54,7 +55,7 @@ from markup_radar.ingest.ownership_client import (
 from markup_radar.narrative import generate_narrative
 from markup_radar.scoring import classify, confidence_markup_start
 from markup_radar.signals import StockData, compute_signals
-from markup_radar.signals.levels import compute_trade_levels
+from markup_radar.signals.levels import bow_zone, compute_trade_levels
 from markup_radar.signals.market import market_regime
 from markup_radar.store import Store, build_sink
 
@@ -64,51 +65,86 @@ def _date_range(end: dt.date, days_back: int) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
+def _atomic_write(out_path: Path, content: str) -> None:
+    """Tulis file atomik (tmp + rename) — tak ada file separuh saat crash."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(out_path.parent), prefix=".live_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        os.replace(tmp, out_path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+# Prioritas slot live-watch: setup entry (MARKUP_*) dulu, baru pantau BOW.
+_LIVE_TIER = {"MARKUP_CONFIRMED": 0, "MARKUP_START": 1, "ACCUMULATION_ONGOING": 2}
+
+
 def _write_live_codes(actionable: list[dict], cfg, *, dry_run: bool) -> list[str]:
     """Pilih subset kode untuk live-watch besok pagi dari hasil scan EOD.
 
-    Ambil setup MARKUP (CONFIRMED + START) — kandidat entry yang perlu konfirmasi
-    order book live — urut confidence tertinggi (CONFIRMED cenderung naik sendiri
-    karena conf-nya tinggi), lalu cap `max_codes`. Tulis atomik ke `live_today.txt`
-    supaya run_live.sh polling FOKUS ke setup terbaik, bukan seluruh universe 50 kode
+    Ambil setup sesuai `live_watch.include_states` — MARKUP (CONFIRMED + START,
+    kandidat entry yang perlu konfirmasi order book live) dan opsional
+    ACCUMULATION_ONGOING (pantau zona BOW). Urut tier state (MARKUP dulu) lalu
+    confidence, cap `max_codes`. Tulis atomik ke `live_today.txt` supaya
+    run_live.sh polling FOKUS ke setup terbaik, bukan seluruh universe 50 kode
     (hemat ~80% kuota live tanpa kehilangan nilai trading).
 
-    File SELALU ditulis (mencerminkan setup malam ini): nol setup -> file hanya header
-    (tanpa kode) -> run_live besok tak punya kode -> exit cepat (0 call). Dilewati
+    Sidecar `live_levels.json` ({code: {state, support, bow_lo, bow_hi, entry}})
+    ikut ditulis utk kode terpilih yang punya levels — dibaca live_watch buat
+    monitor BOW-AC (harga masuk zona + bid dijaga) & invalidasi (jebol support).
+
+    Kedua file SELALU ditulis (mencerminkan setup malam ini): nol setup -> txt
+    hanya header + json `{}` -> run_live besok exit cepat (0 call). Dilewati
     saat dry-run agar file produksi tak terkotori data uji.
     """
     lw = cfg.live_watch
     states = set(lw.get("include_states", ["MARKUP_CONFIRMED", "MARKUP_START"]))
     max_codes = int(lw.get("max_codes", 5))
     out_path = Path(lw.get("out_file", "live_today.txt"))
+    levels_path = Path(lw.get("levels_file", "live_levels.json"))
 
     picks = [r for r in actionable if r.get("state") in states]
-    picks.sort(key=lambda r: r.get("confidence", 0), reverse=True)
-    codes = [r["code"] for r in picks[:max_codes]]
+    picks.sort(key=lambda r: (_LIVE_TIER.get(r.get("state"), 9),
+                              -r.get("confidence", 0)))
+    picks = picks[:max_codes]
+    codes = [r["code"] for r in picks]
 
     print(f"[info] live-watch besok ({len(codes)}/{max_codes} kode): "
           f"{', '.join(codes) or '(kosong)'}", file=sys.stderr)
     if dry_run:
-        print("[info] dry-run: live_today.txt tidak ditulis.", file=sys.stderr)
+        print("[info] dry-run: live_today.txt & live_levels.json tidak ditulis.",
+              file=sys.stderr)
         return codes
 
     header = (
         f"# auto-generated oleh run_daily.py @ "
         f"{dt.datetime.now().isoformat(timespec='seconds')}\n"
-        f"# {len(codes)} kode live-watch (top {max_codes} by confidence "
+        f"# {len(codes)} kode live-watch (top {max_codes} by tier+confidence "
         f"dari {len(actionable)} actionable)\n"
     )
     body = ("\n".join(codes) + "\n") if codes else ""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(out_path.parent), prefix=".live_", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(header + body)
-        os.replace(tmp, out_path)  # atomic: tak ada file separuh
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-    print(f"[OK] {len(codes)} kode live ditulis ke {out_path}", file=sys.stderr)
+    _atomic_write(out_path, header + body)
+
+    levels_map: dict[str, dict] = {}
+    for r in picks:
+        lv = r.get("levels")
+        if not lv:
+            continue
+        bow_lo, bow_hi = bow_zone(lv)
+        levels_map[r["code"]] = {
+            "state": r.get("state", ""),
+            "support": lv.get("support"),
+            "bow_lo": bow_lo,
+            "bow_hi": bow_hi,
+            "entry": lv.get("entry"),
+            "resistance": lv.get("resistance"),
+        }
+    _atomic_write(levels_path, json.dumps(levels_map, indent=1))
+    print(f"[OK] {len(codes)} kode live -> {out_path}; "
+          f"{len(levels_map)} level -> {levels_path}", file=sys.stderr)
     return codes
 
 

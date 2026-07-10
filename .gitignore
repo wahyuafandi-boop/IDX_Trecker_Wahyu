@@ -25,3 +25,6 @@ __pycache__/
 venv/
 build/
 dist/
+
+# Sidecar level BOW/entry live-watch (di-generate run_daily)
+live_levels.json

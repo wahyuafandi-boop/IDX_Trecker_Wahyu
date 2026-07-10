@@ -32,6 +32,20 @@ class TradeLevels:
         return asdict(self)
 
 
+def bow_zone(lv: dict) -> tuple[float, float]:
+    """Zona BOW (buy-on-weakness) dari levels dict: support s/d support + 0.5*ATR.
+
+    Satu sumber formula — dipakai alert (tampilan panduan), sidecar live_levels
+    (run_daily), dan monitor BOW live_watch. (0.0, 0.0) bila field tak lengkap.
+    """
+    try:
+        lo = float(lv["support"])
+        hi = round(lo + 0.5 * float(lv["atr"]), 2)
+    except (KeyError, TypeError, ValueError):
+        return 0.0, 0.0
+    return (lo, hi) if lo > 0 else (0.0, 0.0)
+
+
 def compute_trade_levels(
     ohlcv: pd.DataFrame, *,
     lookback: int = 20, atr_period: int = 14, breakout_buffer: float = 0.005,

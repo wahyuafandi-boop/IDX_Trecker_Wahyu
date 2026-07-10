@@ -222,5 +222,9 @@ broker_categories:
 # entry di setup hasil scan malam, bukan generator sinyal. Lihat scripts/live_watch.py.
 live_watch:
   max_codes: 5                                          # cap kode dipantau live (kontrol kuota)
-  include_states: ["MARKUP_CONFIRMED", "MARKUP_START"]  # tier setup entry (CONFIRMED diurut dulu)
+  # Tier setup: MARKUP_* = konfirmasi entry breakout (prioritas slot);
+  # ACCUMULATION_ONGOING = monitor zona BOW (harga masuk zona + bid dijaga).
+  include_states: ["MARKUP_CONFIRMED", "MARKUP_START", "ACCUMULATION_ONGOING"]
   out_file: live_today.txt
+  levels_file: live_levels.json  # sidecar level BOW/entry per kode (ditulis run_daily)
+  bow_bid_hold_ratio: 0.9        # bid top "dijaga" bila >= 90% dari siklus lalu

@@ -149,6 +149,23 @@ def test_live_signal_wall_verdict_messages():
     assert "ditarik atau dimakan" in generic
 
 
+def test_live_bow_messages():
+    from markup_radar.alert import format_live_bow
+    ac = format_live_bow("ASGR", kind="AC", bow_lo=138.0, bow_hi=140.1,
+                         support=138.0, time_str="10:15")
+    assert "Peluang BOW" in ac and "138–140.1" in ac and "SL di bawah" in ac
+    inv = format_live_bow("ASGR", kind="INVALID", bow_lo=138.0, bow_hi=140.1,
+                          support=138.0)
+    assert "Setup Batal" in inv and "di bawah support 138" in inv
+
+
+def test_bow_zone_helper():
+    from markup_radar.signals.levels import bow_zone
+    assert bow_zone({"support": 138.0, "atr": 4.2}) == (138.0, 140.1)
+    assert bow_zone({}) == (0.0, 0.0)
+    assert bow_zone({"support": 0.0, "atr": 4.2}) == (0.0, 0.0)
+
+
 def test_ownership_wording_follows_retail_pct():
     # <20% = poin plus ("cuma" boleh); >=50% = poin minus (tanpa "cuma").
     low = _why_bullets({}, {"retail_pct": 12.0})[-1]

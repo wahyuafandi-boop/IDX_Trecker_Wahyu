@@ -11,6 +11,7 @@ import html
 import requests
 
 from markup_radar.ingest.ownership_client import fmt_rp
+from markup_radar.signals.levels import bow_zone
 
 _EMOJI = {
     "MARKUP_CONFIRMED": "✅",
@@ -296,7 +297,7 @@ def format_signal(date: str, it: dict) -> str:
         )
         lines += [f"• Perkiraan tahan: ~{lv['est_hold_days']} hari", ""]
     elif lv:
-        bow_hi = round(lv["support"] + 0.5 * lv["atr"], 2)
+        _, bow_hi = bow_zone(lv)
         lines.append("📐 <b>Panduan level selama pantau (belum sinyal masuk)</b>")
         lines.append(
             f"• BOB — beli saat breakout: tunggu tembus dan bertahan di atas "
@@ -449,6 +450,47 @@ def format_live_signal(
     lines.append("⚠️ <i>Pantauan real-time order book, bukan ajakan beli/jual. "
                  "Atur timing &amp; risiko sendiri.</i>")
     return "\n".join(lines)
+
+
+def format_live_bow(
+    code: str,
+    *,
+    kind: str,
+    bow_lo: float,
+    bow_hi: float,
+    support: float,
+    time_str: str = "",
+) -> str:
+    """Pesan live untuk monitor zona BOW pada saham pantau (ACCUMULATION_ONGOING).
+
+    kind "AC"      : harga masuk zona BOW dua siklus berturut DAN antrian beli
+                     dijaga/di-refill — konfirmasi ala tape-reading ("BOW after
+                     confirmasi di bid nya di refil").
+    kind "INVALID" : harga jatuh di bawah support — setup akumulasi batal.
+    """
+    safe = html.escape(str(code))
+    when = f" · {html.escape(time_str)}" if time_str else ""
+    if kind == "INVALID":
+        return "\n".join([
+            f"🔻 <b>{safe}</b> · Setup Batal{when}",
+            "",
+            f"<i>Harga jatuh di bawah support {support:g} — setup akumulasi "
+            f"batal, coret dari pantauan.</i>",
+            "",
+            "⚠️ <i>Bukan ajakan beli/jual. Kelola risiko sendiri.</i>",
+        ])
+    return "\n".join([
+        f"🟦 <b>{safe}</b> · Peluang BOW{when}",
+        "",
+        "<i>Harga masuk area beli-lemah (BOW) dan antrian beli terlihat "
+        "dijaga/di-refill dua siklus berturut — konfirmasi ala tape-reading.</i>",
+        "",
+        f"📐 Zona BOW: {bow_lo:g}–{bow_hi:g}",
+        f"• Kalau mau nyicil: wajib disiplin SL di bawah <b>{support:g}</b>",
+        "",
+        "⚠️ <i>Bukan ajakan beli/jual. Ini konfirmasi zona pantau — lebih agresif "
+        "dari menunggu breakout. Atur ukuran posisi & risiko sendiri.</i>",
+    ])
 
 
 def send_telegram(token: str, chat_id: str, text: str, *, timeout: float = 15.0) -> bool:
