@@ -44,7 +44,7 @@ _HEADER = [
     "regime",
     "relative_strength",
     "alert_sent",      # True = sinyal ini benar-benar terkirim ke Telegram
-    "entry",           # levels hanya terisi utk MARKUP_* (state lain kosong)
+    "entry",           # levels terisi utk MARKUP_* + ACCUMULATION_ONGOING (lain kosong)
     "stop_loss",
     "take_profit",
     "rr_realized",
@@ -69,7 +69,7 @@ def load_service_account_info() -> dict | None:
 def _result_row(result: dict, run_ts: str) -> list[Any]:
     """Ubah satu hasil scan jadi baris sesuai urutan `_HEADER`."""
     s = result.get("signals", {})
-    lv = result.get("levels") or {}   # None utk non-MARKUP -> sel kosong
+    lv = result.get("levels") or {}   # None utk state tanpa levels -> sel kosong
     return [
         run_ts,
         result.get("date", ""),

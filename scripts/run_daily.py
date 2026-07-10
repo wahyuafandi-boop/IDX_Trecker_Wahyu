@@ -263,14 +263,16 @@ def evaluate(data: StockData, signals: dict, cfg, eff: dict):
     """Klasifikasi + confidence + trade levels untuk satu saham (pure, tanpa network).
 
     `eff` = thresholds dasar + overlay profil regime (di-resolve sekali per run di
-    main()). Trade levels HANYA dihitung untuk state MARKUP_* (spec D5); state lain
-    -> None. atr_mult_sl & rr_target diambil dari profil (`eff`), sisanya dari
+    main()). Trade levels dihitung untuk MARKUP_* (rencana trade, spec D5) DAN
+    ACCUMULATION_ONGOING (panduan level pantau: entry bersyarat breakout/BOB,
+    area BOW, batas invalidasi — bukan sinyal masuk). DISTRIBUTION/NEUTRAL ->
+    None. atr_mult_sl & rr_target diambil dari profil (`eff`), sisanya dari
     blok `levels` config.
     """
     state = classify(signals, eff)
     conf = confidence_markup_start(signals, cfg.score_weights)
     levels = None
-    if state in ("MARKUP_START", "MARKUP_CONFIRMED"):
+    if state in ("MARKUP_START", "MARKUP_CONFIRMED", "ACCUMULATION_ONGOING"):
         lv = cfg.levels
         levels = compute_trade_levels(
             data.ohlcv,

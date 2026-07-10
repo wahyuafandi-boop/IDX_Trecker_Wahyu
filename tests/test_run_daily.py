@@ -53,12 +53,15 @@ def test_non_markup_has_no_levels(cfg):
     assert levels is None
 
 
-def test_accumulation_has_no_levels(cfg):
+def test_accumulation_gets_watch_levels(cfg):
+    # Sejak 2026-07-10 state pantau juga dapat levels (panduan BOB/BOW di alert;
+    # entry tetap bersyarat breakout — bukan sinyal masuk).
     data = make_snapshot("accumulation", "DEMO")
     state, _, levels = run_daily.evaluate(
         data, _signals(cfg, data), cfg, _eff(cfg, Regime.BULLISH))
     assert state == "ACCUMULATION_ONGOING"
-    assert levels is None
+    assert isinstance(levels, TradeLevels)
+    assert levels.entry > levels.resistance    # entry = breakout di atas resistance
 
 
 def test_bearish_profile_tightens_stop(cfg):

@@ -5,8 +5,10 @@ Baca semua hasil scan dari data/markup_radar.db (yang ditulis run_daily tiap
 malam), tarik OHLCV tiap kode 1x (hemat kuota), lalu hitung per sinyal:
   - return +5/+10/+20 bar dari close tanggal sinyal (semua state; NEUTRAL =
     baseline pembanding),
-  - khusus MARKUP_* yang punya levels: entry breakout terisi/tidak, lalu
-    SL/TP/timeout (aturan konservatif sama dengan backtest).
+  - khusus baris yang punya levels (MARKUP_* + ACCUMULATION_ONGOING sejak
+    2026-07-10): entry breakout terisi/tidak, lalu SL/TP/timeout (aturan
+    konservatif sama dengan backtest). Utk ACCUMULATION ini mengukur "kalau
+    breakout dari fase pantau kejadian, hasilnya apa".
 Ringkasan win-rate & median per state dicetak di akhir — inilah rapor
 "apakah sinyal yang dikirim ke Telegram ada edge-nya".
 

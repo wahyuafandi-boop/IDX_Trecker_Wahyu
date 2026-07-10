@@ -30,7 +30,7 @@ _MIGRATIONS = [
     "ALTER TABLE results ADD COLUMN regime TEXT DEFAULT ''",
     "ALTER TABLE results ADD COLUMN relative_strength REAL DEFAULT 0",
     "ALTER TABLE results ADD COLUMN alert_sent INTEGER DEFAULT 0",
-    "ALTER TABLE results ADD COLUMN levels TEXT",  # JSON entry/SL/TP (MARKUP_* saja)
+    "ALTER TABLE results ADD COLUMN levels TEXT",  # JSON entry/SL/TP (MARKUP_* + ACCUMULATION)
 ]
 
 

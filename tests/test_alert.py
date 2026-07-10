@@ -1,6 +1,7 @@
 """Test format_alert: HTML mode aman untuk state ber-underscore."""
 
 from markup_radar.alert import format_alert
+from markup_radar.alert.telegram import _why_bullets, format_signal
 
 ITEMS = [
     {"code": "BBRI", "state": "MARKUP_START", "confidence": 90,
@@ -92,3 +93,46 @@ def test_backward_compat_item_without_v2_fields():
     out = format_alert("2026-06-23", ITEMS)
     assert "MARKUP_START" in out
     assert "🎯" not in out                 # tak ada levels -> tak ada baris entry
+
+
+# ---- Panduan level utk state pantau (BOB/BOW, 2026-07-10) ----
+ACCUM_WATCH = {
+    "code": "ASGR", "state": "ACCUMULATION_ONGOING", "confidence": 55,
+    "signals": {"done_ratio": 0.28, "rvol": 7.0, "close_in_range": 0.85,
+                "broker_net_buy_streak": 4},
+    "levels": _LEVELS,
+}
+
+
+def test_watch_state_renders_bob_bow_guidance():
+    out = format_signal("2026-07-09", ACCUM_WATCH)
+    assert "📐" in out
+    assert "BOB" in out and "BOW" in out
+    assert "158.79" in out                 # level breakout = entry dari levels
+    assert "138" in out                    # support = batas invalidasi
+    assert "🎯" not in out                 # blok rencana MARKUP tidak ikut tampil
+    assert "belum sinyal masuk" in out
+
+
+def test_watch_state_without_levels_has_no_guidance():
+    out = format_signal("2026-07-09", {**ACCUM_WATCH, "levels": None})
+    assert "📐" not in out
+
+
+def test_markup_signal_keeps_trade_plan_block():
+    out = format_signal("2026-06-23", MARKUP_V2)
+    assert "🎯" in out
+    assert "📐" not in out
+
+
+def test_ownership_wording_follows_retail_pct():
+    # <20% = poin plus ("cuma" boleh); >=50% = poin minus (tanpa "cuma").
+    low = _why_bullets({}, {"retail_pct": 12.0})[-1]
+    assert "cuma" in low and "terkunci" in low
+    high = _why_bullets({}, {"retail_pct": 80.7, "retail_trend_pp": 3.7,
+                             "trend_months": 6})[-1]
+    assert "cuma" not in high
+    assert "Mayoritas" in high and "poin minus" in high
+    assert "indikasi distribusi" in high
+    mid = _why_bullets({}, {"retail_pct": 35.0})[-1]
+    assert "cuma" not in mid and "Mayoritas" not in mid

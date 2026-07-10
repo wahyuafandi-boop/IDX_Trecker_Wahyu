@@ -67,7 +67,7 @@ def _why_bullets(s: dict, own: dict | None) -> list[str]:
         if dr >= 0.55:
             out.append(f"Pembeli agresif menyerap barang ({pct:.0f}% transaksi di sisi beli)")
         elif dr <= 0.45:
-            out.append(f"Penjual masih lebih aktif ({pct:.0f}% transaksi di sisi beli)")
+            out.append(f"⚠️ Penjual masih lebih aktif ({pct:.0f}% transaksi di sisi beli)")
         else:
             out.append(f"Tekanan beli-jual relatif seimbang ({pct:.0f}% di sisi beli)")
     rvol = s.get("rvol")
@@ -79,22 +79,30 @@ def _why_bullets(s: dict, own: dict | None) -> list[str]:
         if cir >= 0.6:
             out.append("Harga tutup kuat, dekat puncak hari")
         elif cir <= 0.4:
-            out.append("Harga tutup lemah, di bawah rentang hari")
+            out.append("⚠️ Harga tutup lemah, di bawah rentang hari")
         else:
             out.append("Harga tutup di tengah rentang hari")
     streak = s.get("broker_net_buy_streak", 0)
     if streak >= 1:
         out.append(f"Broker borong {streak} hari beruntun")
     if own:
-        seg = f"Ritel cuma pegang {own['retail_pct']:.1f}% saham"
-        if own["retail_pct"] < 20:
-            seg += " — barang relatif terkunci di tangan kuat"
+        # Teori float control: makin KECIL porsi ritel makin bagus (barang
+        # terkunci di bandar) — jangan pakai kata "cuma" saat angkanya besar.
+        pct_r = own["retail_pct"]
+        if pct_r < 20:
+            seg = (f"Ritel cuma pegang {pct_r:.1f}% saham — "
+                   "barang relatif terkunci di tangan kuat (poin plus)")
+        elif pct_r >= 50:
+            seg = (f"⚠️ Mayoritas saham ({pct_r:.1f}%) di tangan ritel — "
+                   "float belum terkontrol bandar (poin minus)")
+        else:
+            seg = f"Ritel pegang {pct_r:.1f}% saham"
         pp = own.get("retail_trend_pp")
         if pp is not None and own.get("trend_months"):
             if pp < 0:
                 seg += f"; porsi ritel menyusut {abs(pp):.1f} poin (barang pindah ke tangan kuat)"
             elif pp > 0:
-                seg += f"; porsi ritel membengkak {pp:.1f} poin (indikasi distribusi)"
+                seg += f"; porsi ritel membengkak {pp:.1f} poin (⚠️ indikasi distribusi)"
         out.append(seg)
     return out
 
@@ -138,8 +146,9 @@ def format_alert(date: str, items: list[dict]) -> str:
             f"streak {s.get('broker_net_buy_streak', 0)}"
         )
 
-        # Baris level — HANYA untuk MARKUP_* (levels terisi; spec D5/§4.8). State lain
-        # (ACCUMULATION/DISTRIBUTION) -> levels None -> tampil tanpa entry.
+        # Baris level — terisi utk MARKUP_* (rencana trade, spec D5/§4.8) dan
+        # ACCUMULATION_ONGOING (panduan pantau; entry = bersyarat breakout).
+        # DISTRIBUTION -> levels None -> tampil tanpa entry.
         lv = it.get("levels")
         if lv:
             lines.append(
@@ -262,7 +271,8 @@ def format_signal(date: str, it: dict) -> str:
     if narr:
         lines += ["💡 <b>Bacaan</b>", html.escape(str(narr)), ""]
 
-    # Rencana trading — HANYA MARKUP_* (levels terisi; state lain tanpa entry).
+    # Rencana trading — MARKUP_* = rencana penuh; ACCUMULATION_ONGOING = panduan
+    # level pantau (BOB/BOW/invalidasi), entry bersyarat — bukan sinyal masuk.
     lv = it.get("levels")
     if is_markup and lv:
         lines.append("🎯 <b>Rencana (kalau harga breakout — bukan harga sekarang)</b>")
@@ -273,6 +283,28 @@ def format_signal(date: str, it: dict) -> str:
             f"(untung ±{lv['rr_realized']:.1f}× dari risiko yang dipertaruhkan)"
         )
         lines += [f"• Perkiraan tahan: ~{lv['est_hold_days']} hari", ""]
+    elif lv:
+        bow_hi = round(lv["support"] + 0.5 * lv["atr"], 2)
+        lines.append("📐 <b>Panduan level selama pantau (belum sinyal masuk)</b>")
+        lines.append(
+            f"• BOB — beli saat breakout: tunggu tembus dan bertahan di atas "
+            f"<b>{lv['entry']:g}</b>, idealnya dengan volume ramai"
+        )
+        lines.append(
+            f"   ↳ kalau kejadian: SL {lv['stop_loss']:g} "
+            f"(turun {lv['stop_pct']:.1%}) · TP {lv['take_profit']:g} "
+            f"(R:R {lv['rr_realized']:.1f})"
+        )
+        lines.append(
+            f"• BOW — nyicil di area lemah: kisaran {lv['support']:g}–{bow_hi:g} "
+            f"dekat support (lebih agresif, wajib SL disiplin di bawah "
+            f"{lv['support']:g})"
+        )
+        lines.append(
+            f"• Setup batal: harga tutup di bawah <b>{lv['support']:g}</b> → "
+            f"coret dari pantauan"
+        )
+        lines.append("")
 
     # Kenapa masuk radar (sinyal teknis diterjemahkan ke bahasa awam).
     bullets = _why_bullets(it.get("signals", {}), it.get("ownership"))
