@@ -1,0 +1,18 @@
+# GO-LIVE OVERRIDE — pasang label Traefik supaya endpoint jadi publik HTTPS.
+# Jalankan HANYA SETELAH DNS A record aktif:
+#     mcp-invezgo.wahyuafandi.my.id  ->  144.91.71.3
+#
+#   cd /root/IDX_Trecker_Wahyu/docker/invezgo-mcp
+#   docker compose -f docker-compose.yml -f docker-compose.public.yml up -d
+#
+# Traefik (cert resolver mytlschallenge / Let's Encrypt TLS-ALPN) akan terbitkan
+# sertifikat otomatis begitu DNS resolve + router muncul. Pola label meniru n8n.
+services:
+  invezgo-mcp:
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.invezgomcp.rule=Host(`mcp-invezgo.wahyuafandi.my.id`)"
+      - traefik.http.routers.invezgomcp.entrypoints=web,websecure
+      - traefik.http.routers.invezgomcp.tls=true
+      - traefik.http.routers.invezgomcp.tls.certresolver=mytlschallenge
+      - traefik.http.services.invezgomcp.loadbalancer.server.port=8848
