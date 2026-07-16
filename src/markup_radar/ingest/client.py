@@ -260,12 +260,20 @@ class InvezgoClient:
         return self._get(f"/analysis/intraday-data/{code}", {"market": market})
 
     def stock_list(self) -> Any:
-        """Daftar seluruh saham BEI. TODO(verify): path literal."""
-        return self._get("/stocks")  # TODO(verify)
+        """Daftar seluruh saham BEI (~1200 emiten: code, name, sector, logo).
+
+        Path diverifikasi dari bundle MCP resmi Invezgo + probe live 2026-07-16
+        (tebakan lama '/stocks' SALAH).
+        """
+        return self._get("/analysis/list/stock")
 
     def index_list(self) -> Any:
-        """Daftar index (IHSG, LQ45, dst). TODO(verify): path literal."""
-        return self._get("/indexes")  # TODO(verify)
+        """Daftar index (COMPOSITE/IHSG, LQ45, dst).
+
+        Path diverifikasi dari bundle MCP resmi + probe live 2026-07-16
+        (tebakan lama '/indexes' SALAH).
+        """
+        return self._get("/analysis/list/index")
 
     # ------------------------------------------------------------------ #
     # Insider / kepemilikan / corporate action / berita
@@ -370,9 +378,103 @@ class InvezgoClient:
     def stock_category_posts(
         self, code: str, category: str, *, page: int = 1, limit: int = 10
     ) -> Any:
-        """Feed postingan per emiten difilter kategori (mis. berita /
-        keterbukaan informasi). Slug kategori dicek via probe."""
+        """Feed postingan per emiten difilter kategori.
+
+        Slug VERIFIED dari bundle MCP resmi Invezgo (2026-07-16):
+        'NEWS' = berita, 'REPORT' = laporan/keterbukaan informasi.
+        """
         return self._get(
             f"/posts/space/category/{code}/{category}",
             {"page": page, "limit": limit},
         )
+
+    # ------------------------------------------------------------------ #
+    # Endpoint tambahan — path + param diverifikasi dari bundle MCP resmi
+    # Invezgo (invezgo-mcp.mcpb v1.0.0, dist/tools/stock/handler.js +
+    # dist/schema/stock.js) dan probe live 2026-07-16. Catatan probe:
+    # broker stalker WAJIB from/to/investor/market (handler resmi malah
+    # tidak mengirim -> 422); sector/rotation selalu balik [] -> tak dipakai.
+    # ------------------------------------------------------------------ #
+    def shareholder_number(self, code: str) -> Any:
+        """Tren JUMLAH investor per bulan: [{code, date, value, price}].
+
+        `value` = jumlah investor tercatat. Menyusut saat harga naik =
+        barang menggumpal ke tangan kuat (bandarmologi); melonjak saat
+        pucuk = distribusi ke ritel.
+        """
+        return self._get(f"/analysis/shareholder/number/{code}")
+
+    def financial_statement(
+        self, code: str, *, statement: str = "IS", type_: str = "Q", limit: int = 4
+    ) -> Any:
+        """Laporan keuangan (tabel {rows, columns}).
+
+        `statement`: BS (neraca) | IS (laba rugi) | CF (arus kas) | EQ (ekuitas).
+        `type_`: Q (kuartal berjalan) | FY (tahunan) | Q1..Q4.
+        """
+        return self._get(
+            f"/analysis/financial-statement/{code}",
+            {"statement": statement, "type": type_, "limit": limit},
+        )
+
+    def keystat(self, code: str, *, type_: str = "Q", limit: int = 4) -> Any:
+        """Key statistics/rasio fundamental (tabel {rows, columns}).
+
+        `type_`: Q | FY | Q1..Q4.
+        """
+        return self._get(f"/analysis/keystat/{code}", {"type": type_, "limit": limit})
+
+    def top_change(self, date: str) -> Any:
+        """Top movers 1 tanggal: {gain: [...], loss: [...]}."""
+        return self._get("/users/top/change", {"date": date})
+
+    def top_accumulation(self, date: str) -> Any:
+        """Top akumulasi/distribusi 1 tanggal: {accum: [...], dist: [...]}.
+
+        Beda dari top_foreign (khusus asing) — ini akumulasi keseluruhan.
+        """
+        return self._get("/users/top/accumulation", {"date": date})
+
+    def broker_stalker(
+        self,
+        broker: str,
+        stock: str,
+        date_from: str,
+        date_to: str,
+        *,
+        investor: str = "all",
+        market: str = "RG",
+    ) -> Any:
+        """Lacak net flow SATU broker di SATU saham per hari.
+
+        Response: {brokers, stock, summary{active,total,avg,peak},
+        calendar:[{date, value, buy_value, sell_value}]}. `investor`/
+        `market` WAJIB (server 422 bila absen).
+        """
+        return self._get(
+            f"/analysis/stalker/broker/{broker}/{stock}",
+            {"from": date_from, "to": date_to, "investor": investor, "market": market},
+        )
+
+    def order_queue(
+        self, code: str, price: float, side: str, *, page: int = 0, limit: int = 50
+    ) -> Any:
+        """Antrian order per LEVEL HARGA (order tracking, S5 live depth).
+
+        `side`: BUY | SELL. Response: list order individual {time, order_id,
+        order_volume, open_volume, done_volume, order_value, ...} — bedakan
+        order kakap vs recehan ritel di satu level harga.
+        """
+        return self._get(
+            f"/analysis/queue/{code}",
+            {"price": price, "side": side, "page": page, "limit": limit},
+        )
+
+    def shareholder_high(self) -> Any:
+        """Daftar market-wide emiten kepemilikan TERKONSENTRASI tinggi.
+
+        Response: [{code, date, percentage}] — percentage ~90%+ = float
+        publik tipis/terkunci (kandidat gampang di-markup). 1 call untuk
+        seluruh market (hemat kuota, cocok discovery).
+        """
+        return self._get("/analysis/shareholder/high")

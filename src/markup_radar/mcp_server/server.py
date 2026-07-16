@@ -212,9 +212,9 @@ def get_stock_news(code: str, category: str | None = None, limit: int = 10) -> A
     """Feed keterbukaan/berita per emiten (KATALIS di balik pergerakan harga).
 
     Pakai untuk jawab 'kenapa volume spike': kontrak/laba = konfirmasi; rights
-    issue dilutif = red flag/trap. `category` opsional (slug filter, mis. berita/
-    keterbukaan); kosong = feed penuh. Konten 'Invezgo Report' berisi tag
-    <report ... url=PDF IDX>.
+    issue dilutif = red flag/trap. `category`: 'NEWS' (berita) | 'REPORT'
+    (laporan/keterbukaan informasi) — slug verified; kosong = feed penuh.
+    Konten 'Invezgo Report' berisi tag <report ... url=PDF IDX>.
     """
     if category:
         thunk = lambda: _api().stock_category_posts(  # noqa: E731
@@ -236,6 +236,108 @@ def get_indicator(indicator: str, code: str, date_from: str, date_to: str) -> An
     return _run(
         1, lambda: _api().indicator_chart(indicator, code, date_from, date_to)
     )
+
+
+# --------------------------------------------------------------------------- #
+# TOOLS — porting dari katalog MCP resmi Invezgo (path verified 2026-07-16)
+# --------------------------------------------------------------------------- #
+@mcp.tool()
+def get_shareholder_number(code: str) -> Any:
+    """Tren JUMLAH investor per bulan (bandarmologi: konsentrasi kepemilikan).
+
+    Response bulanan [{date, value, price}] — `value` = jumlah investor.
+    Jumlah investor MENYUSUT saat harga naik = barang menggumpal ke tangan
+    kuat (bullish); MELONJAK di pucuk = distribusi ke ritel (red flag).
+    """
+    return _run(1, lambda: _api().shareholder_number(code))
+
+
+@mcp.tool()
+def get_financials(
+    code: str, statement: str = "IS", period: str = "Q", limit: int = 4
+) -> Any:
+    """Laporan keuangan emiten (konteks fundamental di balik pergerakan).
+
+    `statement`: 'BS' neraca | 'IS' laba-rugi | 'CF' arus kas | 'EQ' ekuitas.
+    `period`: 'Q' kuartal | 'FY' tahunan | 'Q1'..'Q4'. Return tabel
+    {rows, columns}. Pakai saat perlu cek laba/utang/kas di balik sinyal.
+    """
+    return _run(
+        1,
+        lambda: _api().financial_statement(
+            code, statement=statement, type_=period, limit=limit
+        ),
+    )
+
+
+@mcp.tool()
+def get_keystats(code: str, period: str = "Q", limit: int = 4) -> Any:
+    """Rasio & key statistics fundamental (PER, ROE, dst) per periode.
+
+    `period`: 'Q' | 'FY' | 'Q1'..'Q4'. Lebih ringkas dari get_financials —
+    mulai dari sini untuk cek valuasi/kualitas fundamental cepat.
+    """
+    return _run(1, lambda: _api().keystat(code, type_=period, limit=limit))
+
+
+@mcp.tool()
+def get_top_movers(date: str) -> Any:
+    """Top gainers & losers 1 tanggal: {gain: [...], loss: [...]}.
+
+    Discovery harian — kandidat markup sering muncul di sini sebelum ramai.
+    `date` 'YYYY-MM-DD'. 1 call untuk seluruh market.
+    """
+    return _run(1, lambda: _api().top_change(date))
+
+
+@mcp.tool()
+def get_top_accumulation(date: str) -> Any:
+    """Top akumulasi & distribusi 1 tanggal: {accum: [...], dist: [...]}.
+
+    Beda dari get_top_foreign (khusus asing) — ini akumulasi keseluruhan.
+    Funnel discovery: nama di `accum` beberapa hari beruntun = kandidat markup.
+    """
+    return _run(1, lambda: _api().top_accumulation(date))
+
+
+@mcp.tool()
+def get_broker_stalker(
+    broker: str, code: str, date_from: str, date_to: str
+) -> Any:
+    """Lacak net flow SATU broker di SATU saham per hari (stalking bandar).
+
+    `broker` = kode 2 huruf (mis. CC Mandiri, AK UBS, YP Mirae). Response:
+    summary (net total, hari aktif, peak) + calendar harian {date, value,
+    buy_value, sell_value}. Pakai setelah get_broker_summary menunjukkan
+    broker akumulator — untuk lihat POLA hariannya (konsisten vs sekali gebrak).
+    """
+    return _run(
+        1, lambda: _api().broker_stalker(broker, code, date_from, date_to)
+    )
+
+
+@mcp.tool()
+def get_order_queue(
+    code: str, price: float, side: str = "BUY", limit: int = 20
+) -> Any:
+    """Antrian order per LEVEL HARGA — bedah siapa yang antri (S5 live depth).
+
+    `side`: 'BUY' | 'SELL'. Return order individual {time, order_volume,
+    done_volume, order_value, ...} di harga tsb. Order gede seragam = big
+    money pasang kuda-kuda; recehan acak = ritel. LIVE (jam bursa).
+    """
+    return _run(1, lambda: _api().order_queue(code, price, side, limit=limit))
+
+
+@mcp.tool()
+def get_high_concentration() -> Any:
+    """Daftar market-wide emiten kepemilikan terkonsentrasi tinggi (~90%+).
+
+    Response [{code, date, percentage}] — percentage tinggi = float publik
+    tipis/terkunci = supply gampang dikendalikan (kandidat markup, tapi juga
+    rawan digoreng). 1 call untuk seluruh market — cocok discovery.
+    """
+    return _run(1, lambda: _api().shareholder_high())
 
 
 # --------------------------------------------------------------------------- #

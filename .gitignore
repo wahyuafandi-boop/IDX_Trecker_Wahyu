@@ -1,6 +1,10 @@
 # Secrets
 .env
 docker/invezgo-mcp/mcp.env
+MCP ivezgo_claude.txt
+
+# Bundle MCP resmi Invezgo (biner 5.6MB, bukan source kita — simpan lokal saja)
+invezgo-mcp.mcpb
 
 # Data store
 data/*.db

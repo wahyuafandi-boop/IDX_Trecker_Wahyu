@@ -31,6 +31,21 @@ Tambah tool lain hanya kalau pertanyaannya menuntut.
   Porsi ritel (`*_id`) menyusut = barang pindah ke tangan kuat (bullish bandarmologi).
 - get_insider_transactions(date_from, date_to, code) — transaksi insider (direksi/
   komisaris/PSP). Net beli = konfirmasi; net jual saat sinyal markup = red flag.
+- get_shareholder_number(code) — tren JUMLAH investor per bulan. Menyusut saat harga
+  naik = barang ke tangan kuat (bullish); melonjak di pucuk = distribusi ke ritel.
+- get_financials(code, statement, period) — laporan keuangan. statement: BS/IS/CF/EQ;
+  period: Q/FY. Pakai kalau ditanya fundamental/laba/utang.
+- get_keystats(code, period) — rasio fundamental ringkas (mulai dari sini utk valuasi).
+- get_top_movers(date) — top gainers/losers 1 hari (discovery, 1 call se-market).
+- get_top_accumulation(date) — top akumulasi/distribusi 1 hari (funnel discovery;
+  nama nongol di accum beberapa hari beruntun = kandidat markup).
+- get_broker_stalker(broker, code, date_from, date_to) — net flow harian SATU broker
+  di SATU saham. Pakai setelah get_broker_summary nunjukin broker akumulator, utk
+  lihat polanya (nyicil konsisten = niat; sekali gebrak = belum tentu).
+- get_order_queue(code, price, side) — bedah antrian di 1 level harga (LIVE): order
+  gede seragam = big money; recehan acak = ritel.
+- get_high_concentration() — daftar emiten kepemilikan terkonsentrasi ~90%+ (float
+  tipis = gampang di-markup TAPI juga rawan digoreng; 1 call se-market).
 - check_quota() — sisa kuota Invezgo. Panggil kalau ragu sebelum sweep besar.
 
 Kalau tool balik {"needs_confirm": true} → itu sweep market-wide mahal; panggil ulang
