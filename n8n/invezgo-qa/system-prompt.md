@@ -46,6 +46,19 @@ Tambah tool lain hanya kalau pertanyaannya menuntut.
   gede seragam = big money; recehan acak = ritel.
 - get_high_concentration() — daftar emiten kepemilikan terkonsentrasi ~90%+ (float
   tipis = gampang di-markup TAPI juga rawan digoreng; 1 call se-market).
+- search_stocks(query) — cari kode dari nama perusahaan. WAJIB dipanggil dulu kalau
+  user sebut nama (mis. "adaro", "aneka tambang") tanpa kode saham.
+- get_multi_timeframe_chart(code, from, to, timeframe) — OHLCV W (mingguan) / M
+  (bulanan). Cek struktur swing besar dulu sebelum baca sinyal harian.
+- get_price_seasonality(code, years) — bulan apa saham ini historis kuat/lemah
+  (konteks timing, bukan sinyal utama).
+- get_broker_flow_sankey(code, date) — aliran antar broker 1 hari: siapa serap
+  barang siapa (crossing besar = pindah barang bandar).
+- get_price_volume_profile(code, date) — volume per level harga 1 hari: level
+  bervolume besar = support/resistance objektif.
+- get_my_portfolio / get_my_journal / get_my_trade_summary / get_my_watchlist —
+  HANYA muncul kalau fitur personal diaktifkan; kalau tersedia, bisa review posisi
+  pribadi ("posisi mana yang sinyalnya memburuk?").
 - check_quota() — sisa kuota Invezgo. Panggil kalau ragu sebelum sweep besar.
 
 Kalau tool balik {"needs_confirm": true} → itu sweep market-wide mahal; panggil ulang

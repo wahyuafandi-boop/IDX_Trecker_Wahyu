@@ -340,6 +340,100 @@ def get_high_concentration() -> Any:
     return _run(1, lambda: _api().shareholder_high())
 
 
+@mcp.tool()
+def search_stocks(query: str) -> Any:
+    """Cari kode emiten dari nama perusahaan/kata kunci (mis. 'adaro' -> AADI/ADRO).
+
+    Panggil ini DULU saat user menyebut nama perusahaan tanpa kode saham.
+    Response {hits: [{code, name}], totalHits}.
+    """
+    return _run(1, lambda: _api().search_stock(query))
+
+
+@mcp.tool()
+def get_multi_timeframe_chart(
+    code: str, date_from: str, date_to: str, timeframe: str = "W"
+) -> Any:
+    """OHLCV weekly/monthly/intraday — struktur besar di atas chart harian.
+
+    `timeframe`: 'W' mingguan | 'M' bulanan | 'D' harian | '1','5','15','30',
+    '60' menit. Pakai 'W' untuk cek tren swing besar sebelum baca sinyal harian.
+    """
+    return _run(
+        1,
+        lambda: _api().multi_time_chart(code, date_from, date_to, timeframe=timeframe),
+    )
+
+
+@mcp.tool()
+def get_price_seasonality(code: str, years: int = 5) -> Any:
+    """Seasonality bulanan historis: bulan apa saham ini biasanya kuat/lemah.
+
+    Response per bulan [{month, start_price, end_price, percentage_change}]
+    selama `years` tahun ke belakang. Konteks timing, bukan sinyal utama.
+    """
+    return _run(1, lambda: _api().price_seasonality(code, range_=years))
+
+
+@mcp.tool()
+def get_broker_flow_sankey(
+    code: str, date: str, flow_type: str = "value"
+) -> Any:
+    """Aliran transaksi ANTAR broker pada 1 tanggal (siapa serap barang siapa).
+
+    Response graph {nodes, links} — baca link terbesar: broker seller ->
+    broker buyer. Crossing besar antar broker tertentu = pindah barang
+    bandar. `flow_type`: 'value' (rupiah) | 'volume' (lot).
+    """
+    return _run(1, lambda: _api().sankey_chart(code, date, type_=flow_type))
+
+
+@mcp.tool()
+def get_price_volume_profile(code: str, date: str) -> Any:
+    """Distribusi volume per LEVEL HARGA 1 hari (volume profile).
+
+    Response [{price, buy_volume, sell_volume, buy_freq, sell_freq}] —
+    level dengan volume menumpuk = support/resistance objektif; bandingkan
+    buy vs sell volume di tiap level untuk lihat siapa menang di mana.
+    """
+    return _run(1, lambda: _api().price_table(code, date))
+
+
+# --------------------------------------------------------------------------- #
+# TOOLS — personal (READ-ONLY akun Invezgo pemilik key). OPT-IN via env
+# MCP_ENABLE_PERSONAL=1 — default OFF: endpoint MCP ini publik (dgn token);
+# tanpa flag, data porto/journal tak pernah ter-expose walau token bocor.
+# --------------------------------------------------------------------------- #
+if os.getenv("MCP_ENABLE_PERSONAL", "0") == "1":
+
+    @mcp.tool()
+    def get_my_portfolio(view: str = "positions") -> Any:
+        """Portfolio pribadi di akun Invezgo (read-only).
+
+        `view`: 'positions' (daftar posisi) | 'summary' (total nilai,
+        unrealized P/L, alokasi sektor). Gabungkan dengan tool analisa utk
+        review posisi ("posisi mana yang sinyalnya memburuk?").
+        """
+        if view == "summary":
+            return _run(1, lambda: _api().portfolio_summary())
+        return _run(1, lambda: _api().portfolio())
+
+    @mcp.tool()
+    def get_my_journal(date_from: str, date_to: str) -> Any:
+        """Jurnal trading pribadi pada rentang tanggal (read-only)."""
+        return _run(1, lambda: _api().journals(date_from, date_to))
+
+    @mcp.tool()
+    def get_my_trade_summary(date_from: str, date_to: str) -> Any:
+        """Rapor trading pribadi: win_rate, total profit/loss, top_code, dst."""
+        return _run(1, lambda: _api().trade_summary(date_from, date_to))
+
+    @mcp.tool()
+    def get_my_watchlist() -> Any:
+        """Watchlist tersimpan di akun Invezgo (read-only)."""
+        return _run(1, lambda: _api().my_watchlist())
+
+
 # --------------------------------------------------------------------------- #
 # TOOLS — konteks kepemilikan / insider (enrichment pendukung)
 # --------------------------------------------------------------------------- #

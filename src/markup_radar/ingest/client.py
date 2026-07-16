@@ -478,3 +478,82 @@ class InvezgoClient:
         seluruh market (hemat kuota, cocok discovery).
         """
         return self._get("/analysis/shareholder/high")
+
+    # ------------------------------------------------------------------ #
+    # Batch-2 porting dari katalog MCP resmi (probe live 2026-07-16):
+    # seasonality, multi-timeframe, sankey (buyer/seller = ALL|F|D, BUKAN
+    # angka top-N), search, price-table (WAJIB date). Personal endpoints
+    # (portfolio/journal/trade/watchlist) read-only atas akun pemilik key.
+    # ------------------------------------------------------------------ #
+    def price_seasonality(self, code: str, *, range_: int = 5) -> Any:
+        """Seasonality bulanan: [{month, start_price, end_price,
+        percentage_change}]. `range_` = jumlah tahun ke belakang."""
+        return self._get(f"/analysis/price-seasonality/{code}", {"range": range_})
+
+    def multi_time_chart(
+        self, code: str, date_from: str, date_to: str, *, timeframe: str = "W"
+    ) -> Any:
+        """OHLCV multi-timeframe. `timeframe`: 1|5|15|30|60 (menit) | D | W | M.
+
+        Weekly/Monthly berguna utk struktur swing di atas chart harian.
+        """
+        return self._get(
+            f"/analysis/chart/multi-time/{code}",
+            {"from": date_from, "to": date_to, "timeframe": timeframe},
+        )
+
+    def sankey_chart(
+        self,
+        code: str,
+        date: str,
+        *,
+        type_: str = "value",
+        buyer: str = "ALL",
+        seller: str = "ALL",
+        market: str = "RG",
+    ) -> Any:
+        """Aliran transaksi ANTAR broker 1 hari (graph {nodes, links}).
+
+        `type_`: value|volume. `buyer`/`seller`: ALL|F|D (server 422 bila
+        diisi angka). Kelihatan broker mana menyerap barang dari broker mana
+        — crossing/distribusi antar bandar.
+        """
+        return self._get(
+            f"/analysis/sankey-chart/{code}",
+            {"date": date, "type": type_, "buyer": buyer, "seller": seller,
+             "market": market},
+        )
+
+    def search_stock(self, query: str) -> Any:
+        """Cari emiten by nama/kata kunci. Response {hits:[{code,name,logo}],
+        totalHits} — jembatan 'nama perusahaan' -> kode saham."""
+        return self._get("/search/stock", {"query": query, "cursor": 1})
+
+    def price_table(self, code: str, date: str) -> Any:
+        """Distribusi volume per LEVEL HARGA 1 hari (volume profile).
+
+        Response: [{price, buy_volume, sell_volume, buy_freq, sell_freq}]
+        — level bervolume besar = support/resistance objektif. `date` WAJIB.
+        """
+        return self._get(f"/analysis/price-table/{code}", {"date": date})
+
+    # --- personal (read-only, akun pemilik API key) --------------------- #
+    def portfolio(self) -> Any:
+        """Posisi portfolio di akun Invezgo pemilik key."""
+        return self._get("/portfolios")
+
+    def portfolio_summary(self) -> Any:
+        """Ringkasan portfolio: total_value, unrealized, alokasi sektor."""
+        return self._get("/portfolios/summary")
+
+    def journals(self, date_from: str, date_to: str) -> Any:
+        """Jurnal trading pada rentang tanggal."""
+        return self._get("/journals", {"from": date_from, "to": date_to})
+
+    def trade_summary(self, date_from: str, date_to: str) -> Any:
+        """Rapor trading: win_rate, total_profit/loss, top_code, dst."""
+        return self._get("/trades/summary", {"from": date_from, "to": date_to})
+
+    def my_watchlist(self) -> Any:
+        """Watchlist tersimpan di akun Invezgo."""
+        return self._get("/watchlists", {"group": "null"})
