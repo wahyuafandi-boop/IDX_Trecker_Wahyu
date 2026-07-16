@@ -537,6 +537,54 @@ class InvezgoClient:
         """
         return self._get(f"/analysis/price-table/{code}", {"date": date})
 
+    # --- batch-3: intraday & referensi (skill naya_intraday; probe 2026-07-16) --- #
+    def intraday_ohlc(self, code: str, *, market: str = "RG") -> Any:
+        """OHLCV PER MENIT hari berjalan: [{date, open, high, low, close,
+        volume, freq, value}]. Basis garis harga intraday (skill lensa 1).
+
+        Beda dari `intraday_chart` (itu SNAPSHOT agregat + VWAP)."""
+        return self._get(f"/analysis/intraday/{code}", {"market": market})
+
+    def intraday_inventory(
+        self,
+        code: str,
+        date: str,
+        *,
+        range_: int = 1,
+        type_: str = "value",
+        total: int = 5,
+        buyer: str = "ALL",
+        seller: str = "ALL",
+        market: str = "RG",
+    ) -> Any:
+        """Inventory broker INTRADAY (bandar live): {price: [5-menit OHLCV],
+        broker: [net kumulatif per broker sepanjang hari]}.
+
+        `total` = top-N broker; `buyer`/`seller`: ALL|F|D.
+        """
+        return self._get(
+            f"/analysis/intraday-inventory-chart/{code}",
+            {"date": date, "range": range_, "type": type_, "total": total,
+             "buyer": buyer, "seller": seller, "market": market},
+        )
+
+    def time_table(self, code: str, date: str, *, range_: int = 1) -> Any:
+        """Distribusi buy/sell per MENIT: [{time, buy_lot, sell_lot,
+        buy_percentage, sell_percentage}]. `range` WAJIB (422 bila absen)."""
+        return self._get(
+            f"/analysis/time-table/{code}", {"date": date, "range": range_}
+        )
+
+    def information(self, code: str) -> Any:
+        """Profil emiten: industri, sektor, papan (board), listing_date,
+        alamat, website. Konteks cepat 'perusahaan apa ini'."""
+        return self._get(f"/analysis/information/{code}")
+
+    def broker_list(self) -> Any:
+        """Daftar ~95 broker BEI: [{code, name}] — mapping kode 2 huruf ke
+        nama sekuritas (mis. CC = MANDIRI SEKURITAS)."""
+        return self._get("/analysis/list/broker")
+
     # --- personal (read-only, akun pemilik API key) --------------------- #
     def portfolio(self) -> Any:
         """Posisi portfolio di akun Invezgo pemilik key."""

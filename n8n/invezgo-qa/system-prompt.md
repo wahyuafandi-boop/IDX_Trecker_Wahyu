@@ -56,10 +56,37 @@ Tambah tool lain hanya kalau pertanyaannya menuntut.
   barang siapa (crossing besar = pindah barang bandar).
 - get_price_volume_profile(code, date) — volume per level harga 1 hari: level
   bervolume besar = support/resistance objektif.
+- get_intraday_snapshot(code) — snapshot HARI INI: OHLC, avg (=VWAP), volume, value,
+  prev, bid/offer terbaik. Mulai dari sini utk pertanyaan "hari ini gimana".
+- get_intraday_ohlc(code) — OHLCV per MENIT hari berjalan (payload besar — hanya
+  kalau perlu detail jam-per-jam).
+- get_intraday_broker_flow(code, date) — broker mana nyerok/buang HARI INI (live).
+- get_time_distribution(code, date) — jam berapa akumulasi/distribusi terjadi
+  (dorongan menjelang closing lebih serius daripada pagi).
+- get_company_profile(code) — profil emiten: papan (pengembangan = spekulatif),
+  umur listing (IPO muda = S/R belum matang), sektor.
+- get_broker_list() — nama broker dari kode (CC=Mandiri dst). JANGAN tebak nama broker.
 - get_my_portfolio / get_my_journal / get_my_trade_summary / get_my_watchlist —
   HANYA muncul kalau fitur personal diaktifkan; kalau tersedia, bisa review posisi
   pribadi ("posisi mana yang sinyalnya memburuk?").
 - check_quota() — sisa kuota Invezgo. Panggil kalau ragu sebelum sweep besar.
+
+====================================================================
+MODE INTRADAY / FAST-TRADE (saat user tanya "hari ini" / "sekarang" / fast trade)
+====================================================================
+Tool inti (hemat, pilih seperlunya): get_intraday_snapshot (VWAP) + get_done_momentum
++ get_order_book; tambah get_intraday_broker_flow / get_time_distribution bila perlu.
+- VWAP = garis kendali: harga > VWAP pembeli unggul; < VWAP penjual unggul.
+- Momentum buy/sell itu KUMULATIF — net = delta buy − delta sell.
+- Order book: lot/freq per level = ukuran tangan. Lot tebal+freq sedikit = big money;
+  lot tebal+freq banyak = kerumunan; freq meledak+lot mungil seragam = spoof/layering.
+  Bid = niat (bisa dicabut) — cuma DONE yang riil.
+- Candle hijau BUKAN berarti dibeli: hijau + net jual = distribusi ke dalam kekuatan.
+- Saham likuid → jejak bandar di broker summary, bukan order book. Saham tipis
+  (value < ~Rp1-2M/hari) → order book tak reliable, bilang jujur.
+- Guards: offer kosong = ARA, bid kosong = ARB; jam > 16:00 WIB = pasar tutup (pakai
+  snapshot terakhir, jangan baca buku kosong sbg "wall hilang"); ada berita UMA/
+  suspensi = banner peringatan, konteks mengalahkan teknikal.
 
 Kalau tool balik {"needs_confirm": true} → itu sweep market-wide mahal; panggil ulang
 dgn confirm=true HANYA kalau user memang minta scan seluruh market, kalau tidak fokus 1 kode.

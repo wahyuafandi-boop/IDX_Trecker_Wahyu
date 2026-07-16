@@ -400,6 +400,73 @@ def get_price_volume_profile(code: str, date: str) -> Any:
 
 
 # --------------------------------------------------------------------------- #
+# TOOLS — batch-3: intraday & referensi (mendukung skill naya_intraday)
+# --------------------------------------------------------------------------- #
+@mcp.tool()
+def get_intraday_snapshot(code: str) -> Any:
+    """Snapshot intraday hari ini: open/high/low/close, avg (=VWAP!), volume,
+    freq, value, prev, bid/offer terbaik.
+
+    VWAP = garis kendali intraday: harga > VWAP pembeli unggul; < VWAP penjual
+    unggul. Mulai dari sini untuk pertanyaan 'hari ini gimana'. LIVE jam bursa.
+    """
+    return _run(1, lambda: _api().intraday_chart(code))
+
+
+@mcp.tool()
+def get_intraday_ohlc(code: str) -> Any:
+    """OHLCV PER MENIT hari berjalan (garis harga intraday, ratusan bar).
+
+    Payload besar — panggil hanya saat perlu detail pergerakan menit-per-menit
+    (mis. jam berapa dorongan beli terjadi). LIVE jam bursa.
+    """
+    return _run(1, lambda: _api().intraday_ohlc(code))
+
+
+@mcp.tool()
+def get_intraday_broker_flow(code: str, date: str, top_n: int = 5) -> Any:
+    """Inventory broker INTRADAY: net kumulatif top-N broker sepanjang 1 hari
+    + harga 5-menit. Bandar-tracking live: broker mana nyerok/buang HARI INI.
+
+    Lengkapi dengan get_broker_summary (5 hari) untuk konteks multi-hari.
+    """
+    return _run(
+        1, lambda: _api().intraday_inventory(code, date, total=top_n)
+    )
+
+
+@mcp.tool()
+def get_time_distribution(code: str, date: str) -> Any:
+    """Distribusi buy/sell per MENIT 1 hari: [{time, buy_lot, sell_lot, %}].
+
+    Jawab 'jam berapa akumulasi/distribusi terjadi' — dorongan menjelang
+    closing vs pagi itu beda makna (closing = serius).
+    """
+    return _run(1, lambda: _api().time_table(code, date))
+
+
+@mcp.tool()
+def get_company_profile(code: str) -> Any:
+    """Profil emiten: nama, industri/sektor, PAPAN pencatatan (utama vs
+    pengembangan — pengembangan lebih spekulatif), tanggal listing, website.
+
+    Cek papan + umur listing saat bedah saham asing/baru (IPO muda = riwayat
+    pendek, S/R belum matang).
+    """
+    return _run(1, lambda: _api().information(code))
+
+
+@mcp.tool()
+def get_broker_list() -> Any:
+    """Mapping kode broker -> nama sekuritas (~95 broker BEI).
+
+    Panggil SEKALI saat perlu menyebut nama broker (CC = Mandiri, YP = Mirae,
+    dst) — jangan tebak nama dari kode.
+    """
+    return _run(1, lambda: _api().broker_list())
+
+
+# --------------------------------------------------------------------------- #
 # TOOLS — personal (READ-ONLY akun Invezgo pemilik key). OPT-IN via env
 # MCP_ENABLE_PERSONAL=1 — default OFF: endpoint MCP ini publik (dgn token);
 # tanpa flag, data porto/journal tak pernah ter-expose walau token bocor.
