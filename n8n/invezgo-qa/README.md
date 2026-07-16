@@ -9,7 +9,11 @@ Tanya-jawab analisa saham IDX lewat Telegram. Claude (via Anthropic Messages API
 Jadi jalur otak→MCP→Invezgo terbukti jalan; sisa cuma wiring di n8n (langkahmu).
 
 Arsitektur: `Telegram Trigger → (Ack "lagi narik data" ∥ Build Request) → Claude (MCP) HTTP
-→ Extract Answer → Sanitize Markdown → Telegram Reply`. Timeout Claude 600 dtk (pertanyaan
+→ Extract Answer → Sanitize Markdown → Telegram Reply (→ error: Reply Plain fallback)`.
+Anti-diam: node Claude `onError=continueRegularOutput` (timeout/API error → bot balas
+"⚠️ gagal, coba lagi" alih-alih hening); Telegram Reply `onError=continueErrorOutput` →
+Reply Plain tanpa parse_mode (Markdown ditolak Telegram → jawaban tetap terkirim polos);
+jawaban dipotong di ~4000 char (batas Telegram). Timeout Claude 600 dtk (pertanyaan
 berat multi-tool bisa 2-5 menit). MCP server menyediakan **19 tool** (11 awal + 8 porting
 dari katalog MCP resmi Invezgo, verified 2026-07-16: shareholder_number, financials,
 keystats, top_movers, top_accumulation, broker_stalker, order_queue, high_concentration).

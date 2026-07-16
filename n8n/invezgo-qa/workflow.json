@@ -70,6 +70,7 @@
         700,
         300
       ],
+      "onError": "continueRegularOutput",
       "credentials": {
         "httpHeaderAuth": {
           "id": "REPLACE_anthropic",
@@ -79,7 +80,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const res = $input.first().json;\nlet text = \"\";\nif (res && Array.isArray(res.content)) {\n  text = res.content.filter(function(b){return b && b.type === \"text\";})\n                    .map(function(b){return b.text;}).join(\"\\n\").trim();\n}\nif (!text) {\n  const sr = res ? res.stop_reason : \"?\";\n  const err = (res && res.error) ? (\" | \" + JSON.stringify(res.error)) : \"\";\n  text = \"\\u26a0\\ufe0f Belum ada jawaban (stop_reason: \" + sr + \")\" + err +\n         \". Kalau stop_reason=pause_turn, pertanyaan terlalu banyak langkah tool \\u2014 persempit.\";\n}\nconst chatId = $(\"Build Request\").first().json.chatId;\nreturn [{ json: { chatId: chatId, answer: text } }];\n"
+        "jsCode": "const res = $input.first().json;\nlet text = \"\";\nif (res && Array.isArray(res.content)) {\n  text = res.content.filter(function(b){return b && b.type === \"text\";})\n                    .map(function(b){return b.text;}).join(\"\\n\").trim();\n}\nif (!text && res && res.error) {\n  // Node Claude error (timeout/jaringan/API) tapi onError=continue \\u2192 tetap balas.\n  const msg = (res.error && (res.error.message || res.error.description)) || JSON.stringify(res.error).slice(0, 200);\n  text = \"\\u26a0\\ufe0f Gagal narik analisa: \" + msg +\n         \"\\n\\nCoba kirim ulang pertanyaannya (atau persempit, mis. fokus 1 saham & 1 topik).\";\n}\nif (!text) {\n  const sr = res ? res.stop_reason : \"?\";\n  text = \"\\u26a0\\ufe0f Belum ada jawaban (stop_reason: \" + sr + \").\" +\n         \" Kalau stop_reason=pause_turn, pertanyaan terlalu banyak langkah tool \\u2014 persempit.\";\n}\nif (text.length > 4000) text = text.slice(0, 3950) + \"\\n\\n[\\u2026dipotong, kepanjangan]\";\nconst chatId = $(\"Build Request\").first().json.chatId;\nreturn [{ json: { chatId: chatId, answer: text } }];\n"
       },
       "id": "aa000000-0000-4000-8000-000000000004",
       "name": "Extract Answer",
@@ -122,6 +123,32 @@
         1180,
         300
       ],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_telegram",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $('Sanitize Markdown').first().json.chatId }}",
+        "text": "={{ $('Sanitize Markdown').first().json.answer }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "aa000000-0000-4000-8000-000000000008",
+      "name": "Reply Plain (fallback)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1400,
+        460
+      ],
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_telegram",
@@ -134,7 +161,7 @@
         "resource": "message",
         "operation": "sendMessage",
         "chatId": "={{ $json.message.chat.id }}",
-        "text": "⏳ Lagi narik data & analisa... (pertanyaan berat bisa ~1-2 menit, sabar ya)",
+        "text": "⏳ Lagi narik data & analisa... (biasanya <1 menit; pertanyaan berat bisa 2-5 menit. Kalau gagal nanti aku kabari, bukan diam)",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -210,6 +237,18 @@
         [
           {
             "node": "Telegram Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Reply": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Reply Plain (fallback)",
             "type": "main",
             "index": 0
           }
