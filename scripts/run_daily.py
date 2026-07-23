@@ -456,7 +456,15 @@ def main() -> int:
             # narasi template terkirim berbulan-bulan tanpa ada yang sadar.
             print(f"[WARN] narrative.provider={provider} tapi API key-nya kosong "
                   f"-> semua narasi pakai rule-based.", file=sys.stderr)
-        for record in actionable:
+        # Jeda antar panggilan narasi (default 1.2s). NVIDIA NIM membatasi ~40 RPM
+        # *best-effort*; 12+ panggilan beruntun tanpa jeda memicu 429 -> tiap sinyal
+        # cascade ke model cadangan yang lambat (gemma ~65s) sehingga satu run bisa
+        # molor belasan menit. Menyebarkan panggilan menjaganya di bawah limit
+        # supaya model utama yang cepat (deepseek ~10-25s) menangani mayoritas.
+        pace = float(narrative_cfg.get("pace_seconds", 1.2))
+        for i, record in enumerate(actionable):
+            if i and pace > 0:
+                time.sleep(pace)
             record["narrative"] = generate_narrative(
                 record["code"], record["state"], record["signals"],
                 api_key=narrative_key,

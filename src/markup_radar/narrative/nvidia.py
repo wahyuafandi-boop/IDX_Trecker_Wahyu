@@ -130,18 +130,23 @@ def generate(
     extra_context: str = "",
     max_tokens: int = 400,
     temperature: float = 0.6,
-    # 90s, bukan 60s: deepseek-v4-pro (model utama) tembus 58s pada kasus
-    # berkonteks-insider saat benchmark — 60s akan menggagalkannya di ambang.
-    timeout: float = 90.0,
-    max_retries: int = 3,
+    # 45s: deepseek-v4-pro normal menjawab 7-24s; kalau tak sanggup dalam 45s
+    # berarti endpoint-nya sedang overload (jam sibuk AS) -> lebih baik failover
+    # ke model cadangan daripada menunggu 90s per panggilan. Digabung dgn
+    # fast-failover-on-timeout, satu primary mati tak lagi bikin run molor.
+    timeout: float = 45.0,
+    max_retries: int = 2,
     disable_thinking: bool = True,
     session: requests.Session | None = None,
 ) -> str:
     """Hasilkan narasi via NIM. Lempar NvidiaError bila semua model gagal.
 
-    Urutan coba: `model` dulu, lalu tiap entri `fallback_models`. Tiap model
-    dicoba `max_retries` kali dengan backoff eksponensial + jitter (429 sering
-    pulih dalam hitungan detik).
+    Urutan coba: `model` dulu, lalu tiap entri `fallback_models`. Kebijakan ulang
+    per model dibedakan menurut jenis gagal supaya failover tidak boros waktu:
+      - 429 / 5xx / teks kosong : transien cepat -> retry (backoff+jitter)
+      - TIMEOUT                 : model lambat/overload -> LANGSUNG failover,
+        JANGAN ulang model yang sama (3x90s = 4.5 menit terbuang per model).
+      - 4xx lain (404/401/400)  : permanen -> langsung failover.
     """
     if not api_key:
         raise NvidiaError("NVIDIA_API_KEY belum di-set (lihat config/.env.example).")
@@ -170,11 +175,17 @@ def generate(
                 # Langsung lompat ke model cadangan — mengulang 404 itu sia-sia.
                 errors.append(f"{candidate}: {exc}")
                 break
-            except Exception as exc:  # noqa: BLE001 — transien: kumpulkan lalu ulang
+            except requests.exceptions.Timeout as exc:
+                # Model lambat/overload. Mengulang model YANG SAMA pada timeout
+                # 90s = buang 90s lagi tiap percobaan sebelum akhirnya failover.
+                # Lebih baik segera coba model berikut yang mungkin sehat.
+                errors.append(f"{candidate}: timeout {timeout:.0f}s -> failover")
+                break
+            except Exception as exc:  # noqa: BLE001 — 429/5xx/kosong: retry cepat
                 errors.append(f"{candidate} (percobaan {attempt + 1}): {exc}")
                 if attempt < max_retries - 1:
-                    # 1s, 2s, 4s + jitter — jitter mencegah semua sinyal dalam
-                    # satu run menabrak rate limit di detik yang sama.
+                    # 1s, 2s + jitter — jitter mencegah semua sinyal dalam satu
+                    # run menabrak rate limit di detik yang sama.
                     time.sleep((2 ** attempt) + random.uniform(0, 0.5))
 
     raise NvidiaError("semua model gagal -> " + " | ".join(errors))
