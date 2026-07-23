@@ -449,11 +449,20 @@ def main() -> int:
     _enrich_actionable(client, actionable, date, cfg)
 
     if narrative_cfg.get("enabled"):
+        provider = narrative_cfg.get("provider", "nvidia")
+        narrative_key = cfg.narrative_key(provider)
+        if not narrative_key and provider not in ("none", "off", "rule"):
+            # Dulu ini diam: key kosong -> fallback rule-based tanpa jejak, jadi
+            # narasi template terkirim berbulan-bulan tanpa ada yang sadar.
+            print(f"[WARN] narrative.provider={provider} tapi API key-nya kosong "
+                  f"-> semua narasi pakai rule-based.", file=sys.stderr)
         for record in actionable:
             record["narrative"] = generate_narrative(
                 record["code"], record["state"], record["signals"],
-                api_key=cfg.anthropic_api_key,
-                model=narrative_cfg.get("model", "claude-opus-4-8"),
+                api_key=narrative_key,
+                provider=provider,
+                model=narrative_cfg.get("model", ""),
+                fallback_models=narrative_cfg.get("fallback_models") or [],
                 extra_context=_extra_context(record),
             )
 

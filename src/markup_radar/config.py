@@ -64,7 +64,15 @@ class Settings:
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     anthropic_api_key: str = ""
+    nvidia_api_key: str = ""
     db_path: str = "data/markup_radar.db"
+
+    def narrative_key(self, provider: str) -> str:
+        """Key milik provider narasi yang aktif (lihat narrative.provider)."""
+        return {
+            "nvidia": self.nvidia_api_key,
+            "claude": self.anthropic_api_key,
+        }.get((provider or "").strip().lower(), "")
 
     @property
     def watchlist(self) -> list[str]:
@@ -157,5 +165,6 @@ def load_settings(path: str | Path = DEFAULT_SETTINGS) -> Settings:
         telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID")
         or str(raw.get("telegram", {}).get("chat_id", "")),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        nvidia_api_key=os.getenv("NVIDIA_API_KEY", ""),
         db_path=os.getenv("MARKUP_RADAR_DB", "data/markup_radar.db"),
     )

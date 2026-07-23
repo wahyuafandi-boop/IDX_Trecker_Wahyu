@@ -133,12 +133,42 @@ alert_states:
 telegram:
   chat_id: 6788518859
 
-# Aktifkan narasi via Claude API (Phase 6). Model claude-opus-4-8 (jangan
-# downgrade tanpa alasan; per panduan claude-api). Fallback rule-based otomatis
-# bila SDK/keys tak ada. ~1 call Opus per sinyal actionable/run (biaya kecil).
+# Narasi bahasa awam per sinyal (Phase 6).
+#
+# provider: "nvidia" (NVIDIA NIM, gratis — butuh NVIDIA_API_KEY di .env)
+#           "claude" (Anthropic — butuh ANTHROPIC_API_KEY di .env)
+#           "none"   (rule-based saja, tanpa panggilan LLM)
+# Ganti provider = ganti baris ini saja, kode tidak perlu disentuh.
+#
+# fallback_models dipakai berurutan kalau model utama kena 429/error. NIM
+# membatasi ~40 RPM *best-effort* dan tidak melayani permintaan naik kuota,
+# jadi failover ini bukan hiasan. Kalau semua gagal -> ringkasan rule-based,
+# alert tetap terkirim.
+#
+# Beban nyata: ~8 sinyal actionable per run, 1x sehari. Jauh di bawah limit.
+# Model dipilih lewat benchmark berjuri 2026-07-23/24 (scripts/bench_narrative.py
+# + panel juri 3-lensa: fidelitas fakta / keterbacaan awam / kepatuhan).
+# Hasil kunci — HINDARI, semua membalik fakta atau merusak Bahasa Indonesia:
+#   nemotron-3-nano-30b   12 fatal (broker "jual" padahal net beli; frasa ngawur)
+#   nemotron-3-super-120b  4 fatal ("sentusias pasar", "ambang penjual dominan")
+#   llama-4-maverick       2 fatal (posisi tutup dibalik: 0.33 ditulis "dekat puncak")
+#   llama-3.3-nemotron-49b 2 fatal (dominasi penjual dinetralkan jadi "seimbang")
+#   gpt-oss-20b            3 fatal (narasi terpotong di tengah kalimat)
+# TIDAK dilayani di /v1/chat/completions walau ada di katalog /v1/models (404):
+#   qwen3.5-397b, kimi-k2.6, nemotron-nano-3-30b
+#
+# 3 model di bawah = 0 fatal di semua kasus, TIGA penyedia berbeda (DeepSeek ->
+# OpenAI -> Google) supaya failover benar-benar independen saat satu penyedia
+# down. Utama = deepseek: satu-satunya 0-fatal di KETIGA fixture (termasuk jebakan
+# bullish PACK) + latensi terbaik di kelasnya (~45s). gemma skornya tertinggi tapi
+# SERING TIMEOUT (gagal PACK 2x saat uji) -> ditaruh cadangan terakhir.
 narrative:
   enabled: true
-  model: claude-opus-4-8
+  provider: nvidia
+  model: deepseek-ai/deepseek-v4-pro
+  fallback_models:
+    - openai/gpt-oss-120b
+    - google/gemma-4-31b-it
 
 # Mirror hasil scan ke Google Sheets (persistensi histori + dashboard Phase 6).
 # Runner GitHub Actions ephemeral → SQLite reset tiap run; Sheets jadi penampung
@@ -175,7 +205,14 @@ sheets:
 #    ACCUMULATION_ONGOING (akumulasi = volume sepi). Perlu watchlist terpisah /
 #    formula OR kalau mau markup + akumulasi dua-duanya.
 screener:
-  enabled: true
+  # DINONAKTIFKAN 2026-07-18: watchlist kini UNIVERSE TETAP 100 emiten
+  # (keputusan user, proyek Stock Advisor) — 50 existing + 50 pick baru
+  # tersebar merata 11 sektor, fundamental terbaik (tier roa/per), harga
+  # 100-2500. Dibangun scripts/build_universe_100.py (manifest audit di
+  # data/universe_100.json). enabled=false → screen_universe.py exit 0
+  # TANPA menulis, watchlist_today.txt terjaga. Re-build/refresh universe:
+  # jalankan ulang build_universe_100.py (manual, bukan terjadwal).
+  enabled: false
   category: ["IDXENERGY", "IDXBASIC", "IDXINDUST", "IDXNONCYC", "IDXCYCLIC", "IDXHEALTH", "IDXFINANCE", "IDXPROPERT", "IDXTECHNO", "IDXINFRA", "IDXTRANS"]
   max_watchlist: 50            # cap jumlah kode (kontrol kuota; run_eod ~4-5 call/saham)
   formula: 'close > 100 and value > 3000000000'   # likuiditas/harga; indikator dihandle EOD engine

@@ -1,0 +1,611 @@
+{
+ "built_at": "2026-07-18T21:24:12",
+ "total": 100,
+ "tiers": {
+  "T1": "close > 100 and close < 2500 and value > 2000000000 and roa > 5 and per > 0 and per < 15",
+  "T2": "close > 100 and close < 2500 and value > 1000000000 and roa > 2 and per > 0 and per < 20",
+  "T3": "close > 100 and close < 2500 and value > 500000000 and roa > 0 and per > 0"
+ },
+ "codes": [
+  {
+   "code": "IRSX",
+   "sector": "Teknologi",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "SSMS",
+   "sector": "Barang Konsumen Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "LSIP",
+   "sector": "Barang Konsumen Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "BACH",
+   "sector": "Perindustrian",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "EMMI",
+   "sector": "Kesehatan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "PTMR",
+   "sector": "Barang Baku",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "EXCL",
+   "sector": "Infrastruktur",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "JSMR",
+   "sector": "Infrastruktur",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "ARCI",
+   "sector": "Barang Baku",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "ITMG",
+   "sector": "Energi",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "GJTL",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "SUPA",
+   "sector": "Keuangan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "GGRM",
+   "sector": "Barang Konsumen Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "ELSA",
+   "sector": "Energi",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "IMPC",
+   "sector": "Perindustrian",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "ADMR",
+   "sector": "Energi",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "TLKM",
+   "sector": "Infrastruktur",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "APLN",
+   "sector": "Properti & Real Estat",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "KJEN",
+   "sector": "Transportasi & Logistik",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "SCMA",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "CTRA",
+   "sector": "Properti & Real Estat",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "ECII",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "INCO",
+   "sector": "Barang Baku",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "BBYB",
+   "sector": "Keuangan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "MLPT",
+   "sector": "Teknologi",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "AVIA",
+   "sector": "Barang Baku",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "BUKA",
+   "sector": "Teknologi",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "ARTO",
+   "sector": "Keuangan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "SINI",
+   "sector": "Perindustrian",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "CMRY",
+   "sector": "Barang Konsumen Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "BBNI",
+   "sector": "Keuangan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "OMED",
+   "sector": "Kesehatan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "BUMI",
+   "sector": "Energi",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "DEFI",
+   "sector": "Keuangan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "HRTA",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "PACK",
+   "sector": "Barang Baku",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "RANS",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "ISAT",
+   "sector": "Infrastruktur",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "VERN",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "DGWG",
+   "sector": "Barang Baku",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "OASA",
+   "sector": "Infrastruktur",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "INET",
+   "sector": "Infrastruktur",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "MYOR",
+   "sector": "Barang Konsumen Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "MBMA",
+   "sector": "Barang Baku",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "DOOH",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "BAPA",
+   "sector": "Properti & Real Estat",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "JECX",
+   "sector": "Kesehatan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "NISP",
+   "sector": "Keuangan",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "CDIA",
+   "sector": "Barang Baku",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "PGAS",
+   "sector": "Energi",
+   "tier": null,
+   "source": "existing"
+  },
+  {
+   "code": "APEX",
+   "sector": "Energi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "BBRM",
+   "sector": "Energi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "SOCI",
+   "sector": "Energi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "LEAD",
+   "sector": "Energi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "RAJA",
+   "sector": "Energi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "NCKL",
+   "sector": "Barang Baku",
+   "tier": "T2",
+   "source": "new"
+  },
+  {
+   "code": "SPTO",
+   "sector": "Perindustrian",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "PIPA",
+   "sector": "Perindustrian",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "JTPE",
+   "sector": "Perindustrian",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "ASGR",
+   "sector": "Perindustrian",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "ARNA",
+   "sector": "Perindustrian",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "MARK",
+   "sector": "Perindustrian",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "STAA",
+   "sector": "Barang Konsumen Primer",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "NEST",
+   "sector": "Barang Konsumen Primer",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "BEEF",
+   "sector": "Barang Konsumen Primer",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "WIIM",
+   "sector": "Barang Konsumen Primer",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "LPPF",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": "T1",
+   "source": "new"
+  },
+  {
+   "code": "RALS",
+   "sector": "Barang Konsumen Non-Primer",
+   "tier": "T2",
+   "source": "new"
+  },
+  {
+   "code": "SILO",
+   "sector": "Kesehatan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "PRDA",
+   "sector": "Kesehatan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "HEAL",
+   "sector": "Kesehatan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "KLBF",
+   "sector": "Kesehatan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "MMIX",
+   "sector": "Kesehatan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "MIKA",
+   "sector": "Kesehatan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "BCIC",
+   "sector": "Keuangan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "BFIN",
+   "sector": "Keuangan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "BNII",
+   "sector": "Keuangan",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "CSIS",
+   "sector": "Properti & Real Estat",
+   "tier": "T2",
+   "source": "new"
+  },
+  {
+   "code": "DMAS",
+   "sector": "Properti & Real Estat",
+   "tier": "T2",
+   "source": "new"
+  },
+  {
+   "code": "ASRI",
+   "sector": "Properti & Real Estat",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "TRIN",
+   "sector": "Properti & Real Estat",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "KIJA",
+   "sector": "Properti & Real Estat",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "DILD",
+   "sector": "Properti & Real Estat",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "EMTK",
+   "sector": "Teknologi",
+   "tier": "T1",
+   "source": "new"
+  },
+  {
+   "code": "DIVA",
+   "sector": "Teknologi",
+   "tier": "T2",
+   "source": "new"
+  },
+  {
+   "code": "WIFI",
+   "sector": "Teknologi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "CYBR",
+   "sector": "Teknologi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "MSTI",
+   "sector": "Teknologi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "TRON",
+   "sector": "Teknologi",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "CASS",
+   "sector": "Infrastruktur",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "PPRE",
+   "sector": "Infrastruktur",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "TOWR",
+   "sector": "Infrastruktur",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "SMDR",
+   "sector": "Transportasi & Logistik",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "WEHA",
+   "sector": "Transportasi & Logistik",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "GTRA",
+   "sector": "Transportasi & Logistik",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "BIRD",
+   "sector": "Transportasi & Logistik",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "IMJS",
+   "sector": "Transportasi & Logistik",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "ELPI",
+   "sector": "Transportasi & Logistik",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "HATM",
+   "sector": "Transportasi & Logistik",
+   "tier": "T3",
+   "source": "new"
+  },
+  {
+   "code": "ASSA",
+   "sector": "Transportasi & Logistik",
+   "tier": "T3",
+   "source": "new"
+  }
+ ]
+}
