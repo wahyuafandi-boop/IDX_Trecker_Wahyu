@@ -53,11 +53,14 @@ echo "== backup config lama di VPS"
 ssh "${SSH_OPTS[@]}" "$HOST" \
   "cd $DEST && cp config/settings.yaml config/settings.yaml.bak-\$(date +%Y%m%d-%H%M%S)"
 
-echo "== kirim berkas"
-for f in "${FILES[@]}"; do
-  scp -q -P "$PORT" -i "$KEY" -o ControlPath="$CTL" -r "$f" "$HOST:$DEST/$(dirname "$f")/"
-  echo "   -> $f"
-done
+# SATU aliran tar, bukan 10 panggilan scp. VPS ini memblokir IP setelah ~6
+# koneksi beruntun (ditemukan 2026-09-09: kex_exchange_identification reset,
+# sshd berhenti mengirim banner, dan karena IP kantor = IP yang sama, SSH user
+# ikut terkunci). ControlMaster di atas sudah menyatukan koneksi, tapi tar juga
+# jauh lebih cepat & atomik per-berkas.
+echo "== kirim berkas (satu aliran tar)"
+tar czf - "${FILES[@]}" | ssh "${SSH_OPTS[@]}" "$HOST" "tar xzf - -C $DEST"
+printf '   -> %s\n' "${FILES[@]}"
 
 echo "== bersihkan __pycache__ basi"
 ssh "${SSH_OPTS[@]}" "$HOST" "cd $DEST && find . -name __pycache__ -type d -not -path './.venv/*' -exec rm -rf {} + 2>/dev/null || true"
