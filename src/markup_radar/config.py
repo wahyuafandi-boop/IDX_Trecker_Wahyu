@@ -115,6 +115,15 @@ class Settings:
         return list(self.raw.get("alert_states", []))
 
     @property
+    def alert_filters(self) -> dict[str, Any]:
+        """Gate alert (posisi range, prior-run, streak, dedup episode).
+
+        Blok kosong/absen -> {} -> filters.DEFAULTS yang dipakai. Set
+        `alert_filters.enabled: false` di YAML untuk mematikan gate sepenuhnya.
+        """
+        return dict(self.raw.get("alert_filters", {}))
+
+    @property
     def narrative(self) -> dict[str, Any]:
         return dict(self.raw.get("narrative", {}))
 

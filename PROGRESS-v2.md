@@ -33,6 +33,45 @@
 
 ## Changelog
 
+- **2026-09-09 — GATE ALERT (posisi range + dedup episode), dari audit forward 405 sinyal.**
+  Audit menggabungkan DB VPS (3.848 baris) + DB runner Windows (2.758) → 4.433 baris unik,
+  enrichment dari 56 log EOD, forward return 264 seri OHLCV + IHSG. **Verdict: apa adanya
+  engine KALAH base-rate universe-nya sendiri** — win +10d 57% vs baseline date-matched
+  NEUTRAL 59%; median +1,1% vs +1,7%; excess vs IHSG −1,4% vs −0,8%; MFE≥+5% 64% vs 69%.
+  Dgn stop-loss malah lebih buruk dari baseline di ketiga aturan TP/SL → sinyal memilih
+  VOLATILITAS, bukan arah. 5 nama (PACK/SINI/PIPA/ISAT/SMLE) = 56% dari total cuan.
+  **Akar masalah = TIMING, bukan sinyal kosong:** 42% alert terbit saat close di puncak
+  range 20 bar (universe cuma 12% di sana) — bucket win 45%/excess −2,8%. Buang bucket itu →
+  alert MENANG baseline (66% vs 61%); zona tengah 0,30–0,60 → 77% vs 68%, excess +1,8%,
+  bertahan in-sample (77%) & out-of-sample (78%). Alert ke-2 dst tak menambah apa-apa
+  (MFE median +9,5%→+5,7%); 402 alert = cuma 196 ide unik.
+  **Implementasi:** (1) `price_volume.range_position` (S12) + `prior_run` (S13) — di-wire ke
+  `compute_signals` untuk SEMUA kode (masuk DB, bahan evaluasi native); (2) modul baru
+  `alert/filters.py` — `alert_gate`/`apply_alert_filters`, murni & testable; (3) blok
+  `alert_filters` di settings.yaml (max_range_position 0.85, max_prior_run 0.15,
+  min_broker_streak 1, dedup_episode gap 10 hari) + property `cfg.alert_filters`;
+  (4) `db.last_alert_dates` (hanya `alert_sent=1` → sinyal yang ditahan TIDAK memulai
+  episode baru) + kolom migrasi `suppressed` + `mark_suppressed`; (5) `run_daily`:
+  `candidates` → gate → `actionable`, ditaruh SEBELUM enrichment/narasi (yang ditahan tak
+  bakar kuota Invezgo 3–4 call/kode + panggilan LLM); `mark_suppressed` dijaga `not dry_run`
+  sejajar `mark_alert_sent`.
+  **PRINSIP: gate memotong jalur KIRIM saja** — classifier/confidence/levels/DB/Sheets tetap
+  memproses semua kode apa adanya, alasan tolak masuk kolom `suppressed` → yang disaring
+  tetap bisa dievaluasi forward. DISTRIBUTION_WARNING sengaja di luar `buy_side_states`
+  (per definisi `near_range_high`, gate beli akan membungkamnya justru saat relevan).
+  **Replay gate yang diimplement atas 402 alert historis:** 402 → 143 alert (8,6 → 3,5 per
+  malam, 36% lolos); win +10d 57% → 65%, median +1,0% → +2,3%, excess −1,4% → −0,5%; yang
+  ditahan win 51%/excess −2,0%. Konsisten dua periode (69% & 61%). Penahanan: episode_ulang
+  128, puncak_range 116, streak_broker 9, sudah_lari 6. **Ongkosnya jujur:** 3 ide besar
+  hilang total (KOKA +92,8%, DOOH +69,5%, VERN +59,7% — semua `puncak_range`); 9 dari 12
+  pemenang besar tetap lolos di alert PERTAMA & terbaiknya. Suite: 241 → 244 passed
+  (+24 test_alert_filters, +4 test_db, +3 test_run_daily).
+  *Belum dikerjakan (temuan audit lain):* narasi LLM mati total sejak 7 Agu (semua model
+  NVIDIA 410 Gone / gemma timeout, 20 run terdampak); runner ganda Windows+VPS (27 tanggal
+  dobel, alert kemungkinan terkirim 2–3×); chart Invezgo tak adjusted split (MLPT/RAJA/
+  RMKE/CYBR/COCO — MLPT sempat memicu MARKUP_START dgn RVOL 341× & level absurd); 5 malam
+  run mati senyap karena `fetch_ihsg COMPOSITE` gagal.
+
 - **2026-07-04 (2) — Float control + rotasi broker per kategori (Fase A, additive).** Menjawab teori
   bandarmologi user: (1) porsi ritel <15-20% dari free float = supply terkunci gampang markup;
   (2) dominasi smart money; (3) mapping broker ritel/asing/smart; (4) rotasi "ritel jual, asing/smart

@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from markup_radar.alert import (
+    apply_alert_filters,
     format_alert,
     format_batch_header,
     format_signal,
@@ -410,7 +411,7 @@ def main() -> int:
           f"require_rs={eff.get('require_relative_strength', False)})", file=sys.stderr)
 
     scan_log: list[dict] = []   # SEMUA kode (termasuk NEUTRAL) untuk mirror Sheets
-    actionable: list[dict] = []
+    candidates: list[dict] = []  # lolos alert_states, BELUM lewat gate alert
     for code in cfg.watchlist:
         try:
             data = build_stock_data(
@@ -438,10 +439,45 @@ def main() -> int:
             "relative_strength": round(rs, 4),
             "levels": levels_dict,
             "alert_sent": False,   # di-set True setelah send_telegram sukses
+            "suppressed": None,    # di-set gate alert (alert/filters.py)
         }
         if state in cfg.alert_states:
-            actionable.append(record)
+            candidates.append(record)
         scan_log.append(record)
+
+    # --- Gate alert (blok `alert_filters`) -----------------------------------
+    # Memotong jalur KIRIM saja: semua kode di atas SUDAH tersimpan ke DB apa
+    # adanya, jadi sinyal yang ditahan tetap bisa dievaluasi forward lewat kolom
+    # `suppressed`. Dasar empiris ada di settings.yaml & alert/filters.py.
+    # Ditempatkan SEBELUM enrichment/narasi -> yang ditahan tak membakar kuota
+    # Invezgo (3-4 call/kode) maupun panggilan LLM.
+    last_alerts = store.last_alert_dates(
+        [r["code"] for r in candidates], scan_date_str,
+        within_days=int(cfg.alert_filters.get("episode_gap_days", 10)) * 3,
+    )
+    actionable, held = apply_alert_filters(
+        candidates,
+        filters=cfg.alert_filters,
+        last_alert_dates=last_alerts,
+        scan_date=scan_date_str,
+    )
+    if candidates:
+        print(f"[info] gate alert: {len(actionable)}/{len(candidates)} lolos, "
+              f"{len(held)} ditahan.", file=sys.stderr)
+    if held:
+        # Sejajar dgn mark_alert_sent: hanya run SUNGGUHAN yang menyentuh kolom
+        # audit. Dry-run pada tanggal lampau kalau tidak dijaga akan menimpa
+        # catatan "pernah dikirim" dengan alasan penahanan dan merusak bahan
+        # evaluasi forward.
+        if not args.dry_run:
+            store.mark_suppressed(
+                scan_date_str, {r["code"]: r["suppressed"] for r in held}
+            )
+        by_reason: dict[str, list[str]] = {}
+        for r in held:
+            by_reason.setdefault(r["suppressed"].split("(")[0], []).append(r["code"])
+        for reason, codes in sorted(by_reason.items()):
+            print(f"         - {reason}: {', '.join(sorted(codes))}", file=sys.stderr)
 
     # Konteks insider + corporate action utk kode actionable (fitur opsional,
     # blok `insider` di settings.yaml). Dilakukan SEBELUM narasi supaya Claude

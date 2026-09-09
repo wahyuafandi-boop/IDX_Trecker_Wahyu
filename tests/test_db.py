@@ -69,3 +69,47 @@ def test_migration_on_legacy_db(tmp_path):
     # Buka kedua kali: migrasi idempoten (kolom sudah ada -> dilewati).
     st.close()
     Store(path).close()
+
+
+# --- gate alert: dedup episode & pencatatan alasan (2026-09-09) -------------
+
+def test_last_alert_dates_hanya_yang_terkirim(tmp_path):
+    """Sinyal yang ditahan gate TIDAK memulai episode baru — hanya alert_sent=1."""
+    st = Store(tmp_path / "t.db")
+    for d in ("2026-09-01", "2026-09-04", "2026-09-07"):
+        st.save_result(d, "AAAA", "ACCUMULATION_ONGOING", 50, {})
+    st.mark_alert_sent("2026-09-01", ["AAAA"])   # cuma yang pertama terkirim
+    st.save_result("2026-09-05", "BBBB", "MARKUP_START", 60, {})
+
+    out = st.last_alert_dates(["AAAA", "BBBB"], "2026-09-08")
+    assert out == {"AAAA": "2026-09-01"}          # BBBB tak pernah terkirim
+    st.close()
+
+
+def test_last_alert_dates_abaikan_masa_depan_dan_jendela(tmp_path):
+    st = Store(tmp_path / "t.db")
+    for d in ("2026-07-01", "2026-09-02", "2026-09-09"):
+        st.save_result(d, "AAAA", "ACCUMULATION_ONGOING", 50, {})
+        st.mark_alert_sent(d, ["AAAA"])
+    # 2026-09-09 di masa depan relatif scan; 2026-07-01 di luar jendela 30 hari
+    assert st.last_alert_dates(["AAAA"], "2026-09-08") == {"AAAA": "2026-09-02"}
+    assert st.last_alert_dates(["AAAA"], "2026-08-01", within_days=5) == {}
+    st.close()
+
+
+def test_last_alert_dates_kode_kosong(tmp_path):
+    st = Store(tmp_path / "t.db")
+    assert st.last_alert_dates([], "2026-09-08") == {}
+    st.close()
+
+
+def test_mark_suppressed(tmp_path):
+    st = Store(tmp_path / "t.db")
+    st.save_result("2026-09-08", "AAAA", "ACCUMULATION_ONGOING", 50, {})
+    st.save_result("2026-09-08", "BBBB", "ACCUMULATION_ONGOING", 50, {})
+    st.mark_suppressed("2026-09-08", {"AAAA": "puncak_range(0.92)"})
+
+    rows = {r["code"]: r for r in st.get_results("2026-09-08")}
+    assert rows["AAAA"]["suppressed"] == "puncak_range(0.92)"
+    assert rows["BBBB"]["suppressed"] is None
+    st.close()

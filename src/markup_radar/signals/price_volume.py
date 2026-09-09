@@ -239,6 +239,51 @@ def donchian(high, low, lookback: int = 20) -> tuple[float, float]:
     return float(h.max()), float(l.min())
 
 
+def range_position(high, low, close, lookback: int = 20) -> float:
+    """S12: posisi close dalam range `lookback` bar. 0 = dasar, 1 = puncak.
+
+    Beda dari `close_in_range` (S7) yang cuma melihat range SATU hari: ini
+    memberi konteks "harga sudah di mana dalam sebulan terakhir".
+
+    Audit forward 2026-09-09 (399 alert produksi, 18 Jun-8 Sep) menemukan ini
+    pembeda outcome terkuat yang ada:
+        posisi        n    win +10d   median   excess vs IHSG
+        < 0.30       29      79%      +3.7%       -0.3%
+        0.30-0.60    91      77%      +4.0%       +1.8%
+        0.60-0.85   110      57%      +0.9%       -1.4%
+        > 0.85      169      45%       0.0%       -2.8%
+    42% alert terbit di bucket teratas (universe cuma 12% yang ada di sana),
+    yaitu justru bucket dengan excess return paling negatif. Dipakai sebagai
+    GATE ALERT (lihat alert/filters.py), BUKAN gate classifier — classifier
+    sengaja tak disentuh supaya baris DB tetap lengkap untuk evaluasi forward.
+
+    0.5 (netral) bila range degenerate/data kosong — konvensi sama dgn
+    `close_in_range`, supaya data cacat tak otomatis lolos/tertolak filter.
+    """
+    resis, support = donchian(high, low, lookback)
+    rng = resis - support
+    if rng <= 0:
+        return 0.5
+    return float((float(close) - support) / rng)
+
+
+def prior_run(closes, window: int = 10) -> float:
+    """S13: return close terhadap close `window` bar lalu — "sudah lari berapa".
+
+    Sinyal produksi rata-rata terbit setelah harga naik 4.0% dalam 10 bar
+    (baseline universe: 1.6%), dan makin jauh larinya makin buruk hasilnya
+    (audit 2026-09-09: sudah lari >15% -> win 43%, median -0.9%). Dipakai
+    sebagai gate alert sekunder. 0.0 bila data kurang dari `window`+1 bar.
+    """
+    c = pd.Series(closes).dropna()
+    if len(c) < window + 1:
+        return 0.0
+    base = float(c.iloc[-(window + 1)])
+    if base <= 0:
+        return 0.0
+    return float(c.iloc[-1]) / base - 1.0
+
+
 # --- Cabut vs Dimakan (tape-reading): tembok offer menyusut karena apa? -------
 
 def _bar_field(bar: dict, *names: str):

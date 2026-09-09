@@ -31,6 +31,10 @@ _MIGRATIONS = [
     "ALTER TABLE results ADD COLUMN relative_strength REAL DEFAULT 0",
     "ALTER TABLE results ADD COLUMN alert_sent INTEGER DEFAULT 0",
     "ALTER TABLE results ADD COLUMN levels TEXT",  # JSON entry/SL/TP (MARKUP_* + ACCUMULATION)
+    # Alasan sinyal actionable TIDAK dikirim (gate alert 2026-09-09). NULL = lolos
+    # gate / tak dievaluasi. Disimpan supaya yang disaring tetap bisa dievaluasi
+    # forward — kalau ternyata yang dibuang justru naik, buktinya ada di sini.
+    "ALTER TABLE results ADD COLUMN suppressed TEXT",
 ]
 
 
@@ -99,6 +103,51 @@ class Store:
             (date, *codes),
         )
         self.conn.commit()
+
+    def mark_suppressed(self, date: str, reasons: dict[str, str]) -> None:
+        """Catat alasan tiap kode actionable yang ditahan gate alert."""
+        if not reasons:
+            return
+        self.conn.executemany(
+            "UPDATE results SET suppressed=? WHERE date=? AND code=?",
+            [(reason, date, code) for code, reason in reasons.items()],
+        )
+        self.conn.commit()
+
+    def last_alert_dates(
+        self, codes: list[str], before_date: str, *, within_days: int = 30
+    ) -> dict[str, str]:
+        """{code: tanggal alert terakhir} sebelum `before_date` — input dedup episode.
+
+        Hanya baris yang BENAR-BENAR terkirim (`alert_sent=1`) yang dihitung;
+        sinyal yang ditahan gate tidak memulai episode baru, jadi kode yang
+        disaring berhari-hari tetap bisa lolos begitu kondisinya membaik.
+        `within_days` membatasi scan ke jendela yang relevan (gap episode
+        realistis <= 30 hari) supaya query tetap murah saat DB membesar.
+        """
+        if not codes:
+            return {}
+        import datetime as _dt
+
+        try:
+            floor = (_dt.date.fromisoformat(before_date)
+                     - _dt.timedelta(days=within_days)).isoformat()
+        except ValueError:
+            floor = "0000-00-00"
+        placeholders = ",".join("?" * len(codes))
+        cur = self.conn.execute(
+            f"""
+            SELECT code, MAX(date) AS last_date
+              FROM results
+             WHERE alert_sent = 1
+               AND date < ?
+               AND date >= ?
+               AND code IN ({placeholders})
+             GROUP BY code
+            """,
+            (before_date, floor, *codes),
+        )
+        return {r["code"]: r["last_date"] for r in cur.fetchall()}
 
     def get_results(self, date: str) -> list[dict]:
         cur = self.conn.execute("SELECT * FROM results WHERE date = ?", (date,))

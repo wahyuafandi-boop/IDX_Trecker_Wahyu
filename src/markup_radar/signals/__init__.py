@@ -85,6 +85,17 @@ def compute_signals(
             t.get("near_range_high", 0.8),
         ),
         "price_ranging": price_volume.price_ranging(df["close"]) if not df.empty else False,
+        # S12/S13 konteks timing (TIDAK masuk gate classifier — dipakai gate ALERT
+        # di alert/filters.py, lihat docstring price_volume.range_position).
+        # Tetap dihitung & disimpan untuk SEMUA kode supaya evaluasi forward
+        # punya kolomnya secara native, bukan direkonstruksi belakangan.
+        "range_position": price_volume.range_position(
+            df["high"], df["low"], last.get("close", 0),
+            w.get("donchian_lookback", 20),
+        ) if not df.empty else 0.5,
+        "prior_run": price_volume.prior_run(
+            df["close"], w.get("prior_run_window", 10)
+        ) if not df.empty else 0.0,
         # S8
         "foreign_net": data.foreign_net_value,
         # S9

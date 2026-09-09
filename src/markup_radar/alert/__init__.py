@@ -1,5 +1,6 @@
 """Alerting (Telegram)."""
 
+from markup_radar.alert.filters import alert_gate, apply_alert_filters
 from markup_radar.alert.telegram import (
     format_alert,
     format_batch_header,
@@ -10,6 +11,8 @@ from markup_radar.alert.telegram import (
 )
 
 __all__ = [
+    "alert_gate",
+    "apply_alert_filters",
     "format_alert",
     "format_batch_header",
     "format_live_bow",

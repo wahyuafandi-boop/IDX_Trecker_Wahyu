@@ -126,6 +126,40 @@ alert_states:
   - ACCUMULATION_ONGOING
   - DISTRIBUTION_WARNING
 
+# Gate alert (2026-09-09) — memotong jalur KIRIM saja; classifier/DB/Sheets tetap
+# mencatat semua kode apa adanya, alasan tolak masuk kolom DB `suppressed` supaya
+# yang disaring tetap bisa dievaluasi forward.
+#
+# Dasar empiris: audit 405 sinyal produksi 18 Jun-8 Sep 2026 vs baseline
+# date-matched 3.819 baris NEUTRAL (universe yang sama, hari yang sama).
+#   - Apa adanya alert KALAH base-rate: win +10d 57% vs 59%, excess -1.4% vs -0.8%.
+#   - range_position > 0.85 (42% dari alert!): win 45%, excess -2.8%.
+#     Dibuang -> alert MENANG baseline: 66% vs 61%. Zona 0.30-0.60: 77% vs 68%,
+#     excess +1.8%. Bertahan in-sample (77%) & out-of-sample (78%).
+#   - prior_run > 15%/10 bar: win 43%, median -0.9%.
+#   - broker_net_buy_streak = 0: win 43%, excess -2.1%.
+#   - Alert ke-2 dst dalam satu deretan: MFE median +9.5% -> +5.7%, hit+5% 72% -> 55%.
+#     402 alert historis = cuma 196 ide unik.
+# Perkiraan dampak: ~8.6 alert/malam -> ~2-3, win +10d naik ke kisaran 66-77%.
+#
+# PERINGATAN: angka di atas dari SATU periode 3 bulan yang 88% regime BULLISH.
+# Belum teruji di pasar turun. Set enabled: false untuk kembali ke perilaku lama.
+alert_filters:
+  enabled: true
+  max_range_position: 0.85   # tolak sinyal beli saat close di puncak range 20 bar
+  max_prior_run: 0.15        # tolak yang sudah lari >15% dalam prior_run_window bar
+  min_broker_streak: 1       # tolak yang tak punya satu pun hari net-buy broker
+  dedup_episode: true        # kirim hanya alert PERTAMA tiap episode
+  episode_gap_days: 10       # jeda >10 hari kalender = episode (ide) baru
+  # Gate posisi/prior-run/streak = gate SISI BELI. DISTRIBUTION_WARNING sengaja
+  # TIDAK di sini: itu peringatan jual yang secara definisi (near_range_high di
+  # classifier) muncul dekat puncak range — mem-filternya dengan aturan beli akan
+  # membungkamnya justru saat paling relevan. Dedup episode tetap berlaku untuknya.
+  buy_side_states:
+    - MARKUP_CONFIRMED
+    - MARKUP_START
+    - ACCUMULATION_ONGOING
+
 # Telegram: chat tujuan alert.
 # chat_id boleh di sini (bukan rahasia). TOKEN WAJIB lewat env/secret
 # (TELEGRAM_BOT_TOKEN), jangan pernah ditaruh di file ini.

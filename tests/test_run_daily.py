@@ -167,3 +167,43 @@ def test_bow_check_none_when_no_data():
     ev, in_zone = live_watch._bow_check(_BOWLV, 150.0, 5000,
                                         {"bow_in_zone": True, "bid_lot": 5000}, 0.9)
     assert ev is None and not in_zone
+
+
+# --- Gate alert terintegrasi (2026-09-09) ----------------------------------
+
+def test_compute_signals_menghasilkan_konteks_timing(cfg):
+    """range_position & prior_run ikut dihitung untuk SEMUA kode (bahan evaluasi)."""
+    data = make_snapshot("markup", "DEMO")
+    sig = compute_signals(data, cfg.thresholds, cfg.windows, cfg.broker_top_n)
+    assert 0.0 <= sig["range_position"] <= 1.0
+    assert isinstance(sig["prior_run"], float)
+
+
+def test_gate_alert_memotong_kirim_bukan_klasifikasi(cfg):
+    """Sinyal di puncak range tetap DIKLASIFIKASI & tersimpan, tapi tak dikirim."""
+    from markup_radar.alert import apply_alert_filters
+
+    data = make_snapshot("markup", "DEMO")
+    sig = compute_signals(data, cfg.thresholds, cfg.windows, cfg.broker_top_n)
+    state, conf, levels = run_daily.evaluate(data, sig, cfg, _eff(cfg, Regime.BULLISH))
+
+    puncak = {"code": "AAAA", "state": "ACCUMULATION_ONGOING",
+              "signals": {**sig, "range_position": 0.97, "prior_run": 0.02,
+                          "broker_net_buy_streak": 3}}
+    tengah = {"code": "BBBB", "state": "ACCUMULATION_ONGOING",
+              "signals": {**sig, "range_position": 0.45, "prior_run": 0.02,
+                          "broker_net_buy_streak": 3}}
+    keep, held = apply_alert_filters([puncak, tengah], filters=cfg.alert_filters,
+                                     scan_date="2026-09-08")
+    assert [r["code"] for r in keep] == ["BBBB"]
+    assert held[0]["suppressed"].startswith("puncak_range")
+    # state & confidence tetap dihitung apa adanya — gate tak menyentuhnya
+    assert state and isinstance(conf, int)
+
+
+def test_alert_filters_config_terbaca(cfg):
+    f = cfg.alert_filters
+    assert f["enabled"] is True
+    assert f["max_range_position"] == 0.85
+    assert f["episode_gap_days"] == 10
+    assert "DISTRIBUTION_WARNING" not in f["buy_side_states"]
