@@ -33,6 +33,39 @@
 
 ## Changelog
 
+- **2026-09-09 (2) — Perbaikan 3 kegagalan senyap + skrip deploy.** Semuanya berbagi akar
+  sama: kerusakan cuma jadi baris `[WARN]` di log VPS yang tak pernah dibaca, sementara
+  output ke Telegram tetap terlihat normal.
+  (1) **Narasi LLM mati total sejak 7 Agu** (20 run): semua model di config kena HTTP 410
+  Gone (deepseek-v4-pro EOL 07-08, gpt-oss-120b EOL 03-09, gemma-4-31b-it timeout permanen).
+  Probe 22 model katalog → **HANYA 2 HIDUP**: `moonshotai/kimi-k3` (~13s, akurat, 0
+  pembalikan fakta — jadi utama) & `openai/gpt-oss-20b` (~9s, cadangan). 9 model terdaftar
+  tapi 404 di chat/completions, 5 timeout bahkan pada 150s. Tooling baru
+  `scripts/probe_narrative_models.py` (prompt narasi ASLI + fixture jebakan → model yang
+  membalik fakta ikut ketahuan). `generate_narrative(stats=...)` → run_daily menghitung
+  llm vs fallback & MELAPOR (ERROR + peringatan Telegram) saat ≥50% fallback. Default model
+  mati (`qwen3.5-397b`, 404) ikut diganti.
+  (2) **Chart Invezgo tak adjusted split**: `ohlc_client.detect_corporate_action` /
+  `trim_at_corporate_action` — gap close-to-close < −35% (di luar ARB maks IDX 35%) atau
+  > +60% (reverse split) → bar pra-event dibuang. `run_daily.MIN_BARS = 21` → histori
+  terlalu pendek (konsekuensi pemotongan, atau IPO baru) = saham DILEWATI, bukan dihitung
+  di atas data tipis. Ini yang bikin MLPT pasca-split 1:20 memicu MARKUP_START dgn RVOL
+  341× & level resistance 29.500 vs support 1.075.
+  (3) **Run gagal total menyamar jadi malam sepi**: 5 malam token Invezgo balas 401 utk
+  SEMUA kode, run tetap kirim "Tidak ada sinyal actionable hari ini". Sekarang run_daily
+  menghitung kode gagal/tipis; ≥30% → ERROR + **peringatan sistem terpisah ke Telegram**
+  (justru dikirim saat tak ada sinyal, karena itulah tampilan yang menyamarkan kerusakan).
+  IHSG kosong juga dilaporkan (regime jatuh ke fail-safe BEARISH → sinyal lebih ketat dari
+  seharusnya).
+  (4) **Runner ganda dimatikan**: Task Scheduler Windows `MarkupRadar-EOD` ternyata masih
+  `Ready` (jalan Sen–Jum 19:05, terakhir 9 Sep 20:00) — sumber alert dobel di 27 tanggal.
+  Sudah `Disable-ScheduledTask`. VPS = runner tunggal (sesuai niat awal proyek).
+  Hidupkan lagi: `Enable-ScheduledTask -TaskName 'MarkupRadar-EOD'`.
+  (5) `deploy_vps.sh` (baru): scp kode+config ke VPS lewat SATU koneksi ControlMaster
+  (VPS pakai fail2ban — koneksi beruntun bikin ke-ban), backup settings.yaml, lalu
+  jalankan test suite + smoke dry-run + tampilkan cron. Tidak menyentuh `.env`, `data/`,
+  `logs/`, `watchlist_today.txt`. Suite: 244 → 254 passed.
+
 - **2026-09-09 — GATE ALERT (posisi range + dedup episode), dari audit forward 405 sinyal.**
   Audit menggabungkan DB VPS (3.848 baris) + DB runner Windows (2.758) → 4.433 baris unik,
   enrichment dari 56 log EOD, forward return 264 seri OHLCV + IHSG. **Verdict: apa adanya
