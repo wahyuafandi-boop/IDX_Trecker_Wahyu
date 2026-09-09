@@ -31,6 +31,7 @@ import math
 import os
 import sys
 from pathlib import Path
+from statistics import median
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -43,7 +44,7 @@ from markup_radar.store.sheets import load_service_account_info, overwrite_works
 
 _DETAIL_HEADER = [
     "date", "code", "state", "confidence", "regime", "relative_strength",
-    "alert_sent", "bars_fwd",
+    "alert_sent", "suppressed", "bars_fwd",
     "fwd_close_5", "fwd_close_10", "fwd_close_20", "fwd_max", "fwd_min",
     "trade_filled", "trade_exit", "trade_bars", "trade_ret",
 ]
@@ -132,6 +133,7 @@ def main() -> int:
             "regime": r.get("regime") or "",
             "relative_strength": r.get("relative_strength") or 0.0,
             "alert_sent": bool(r.get("alert_sent") or 0),
+            "suppressed": r.get("suppressed") or "",
             **fwd,
             "trade_filled": trade.get("filled", ""),
             "trade_exit": trade.get("exit", ""),
@@ -162,6 +164,45 @@ def main() -> int:
         print(line)
     print("\nBaca: win/med MARKUP_* harus MENGALAHKAN baseline NEUTRAL, bukan "
           "sekadar positif. n kecil = belum bisa disimpulkan, kumpulkan terus.")
+
+    # --- Rapor gate alert: apakah yang kita TAHAN memang layak ditahan? ------
+    # Gate dipasang 2026-09-09 atas dasar satu periode 3 bulan yang 88% BULLISH.
+    # Blok ini yang akan membantahnya kalau ternyata salah: kalau sinyal yang
+    # ditahan justru mengalahkan yang dikirim, gate-nya harus dilonggarkan.
+    held = [d for d in detail if d.get("suppressed")]
+    if held:
+        sent = [d for d in detail if d.get("alert_sent")]
+        print("\n" + "=" * 78)
+        print("RAPOR GATE ALERT — dikirim vs ditahan (alert_filters)")
+        print("=" * 78)
+        print(f"{'kelompok':28s} {'n':>4s}" + "".join(
+            f" {'n' + str(h):>4s} {'win' + str(h):>6s} {'med' + str(h):>7s}"
+            for h in HORIZONS))
+        groups: list[tuple[str, list[dict]]] = [
+            ("DIKIRIM (lolos gate)", sent),
+            ("DITAHAN (semua alasan)", held),
+        ]
+        by_reason: dict[str, list[dict]] = {}
+        for d in held:
+            by_reason.setdefault(str(d["suppressed"]).split("(")[0], []).append(d)
+        groups += [(f"  ditahan: {k}", v) for k, v in sorted(by_reason.items())]
+        for label, grp in groups:
+            if not grp:
+                continue
+            line = f"{label:28s} {len(grp):>4d}"
+            for h in HORIZONS:
+                vals = [d[f"fwd_close_{h}"] for d in grp
+                        if not math.isnan(d.get(f"fwd_close_{h}", math.nan))]
+                if vals:
+                    win = sum(1 for v in vals if v > 0) / len(vals)
+                    line += (f" {len(vals):>4d} {_fmt(win, True):>6s} "
+                             f"{_fmt(median(vals), True):>7s}")
+                else:
+                    line += f" {0:>4d} {'-':>6s} {'-':>7s}"
+            print(line)
+        print("\nBaca: DITAHAN seharusnya LEBIH BURUK dari DIKIRIM. Kalau tidak — "
+              "atau kalau satu alasan penahanan konsisten menahan pemenang — "
+              "longgarkan ambangnya di settings.yaml blok alert_filters.")
 
     # --- CSV ---
     if args.csv:
