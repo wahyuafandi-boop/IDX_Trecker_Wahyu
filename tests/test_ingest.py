@@ -366,3 +366,67 @@ def test_foreign_map_and_lookup():
     assert foreign_net_for("BBRI", fmap) == 1000.0
     assert foreign_net_for("TLKM", fmap) == -500.0
     assert foreign_net_for("ASII", fmap) == 0.0  # di luar top list
+
+
+# --- Guard aksi korporasi (stock split) — 2026-09-09 -----------------------
+
+def _series(closes):
+    """OHLCV minimal dari deret close (high/low mengikuti close)."""
+    import pandas as pd
+    return pd.DataFrame({
+        "date": [f"2026-07-{i + 1:02d}" for i in range(len(closes))],
+        "open": closes, "high": [c * 1.01 for c in closes],
+        "low": [c * 0.99 for c in closes], "close": closes,
+        "volume": [1000.0] * len(closes),
+    })
+
+
+def test_detect_corporate_action_split():
+    """MLPT 21 Jul 2026: split 1:20 -> close terjun -95% dalam satu bar."""
+    from markup_radar.ingest.ohlc_client import detect_corporate_action
+    df = _series([26000.0, 26100.0, 25900.0, 1300.0, 1310.0])
+    assert detect_corporate_action(df) == "2026-07-04"
+
+
+def test_detect_corporate_action_abaikan_arb_wajar():
+    """ARB IDX maksimal 35% — penurunan segitu BUKAN aksi korporasi."""
+    from markup_radar.ingest.ohlc_client import detect_corporate_action
+    df = _series([100.0, 100.0, 70.0, 71.0])          # -30%
+    assert detect_corporate_action(df) is None
+
+
+def test_detect_corporate_action_reverse_split():
+    from markup_radar.ingest.ohlc_client import detect_corporate_action
+    df = _series([50.0, 51.0, 500.0, 505.0])          # +880%
+    assert detect_corporate_action(df) == "2026-07-03"
+
+
+def test_detect_corporate_action_deret_bersih():
+    from markup_radar.ingest.ohlc_client import detect_corporate_action
+    assert detect_corporate_action(_series([100.0, 102.0, 99.0, 105.0])) is None
+    assert detect_corporate_action(_series([100.0])) is None
+
+
+def test_trim_at_corporate_action_buang_bar_pra_split():
+    from markup_radar.ingest.ohlc_client import trim_at_corporate_action
+    df = _series([26000.0, 26100.0, 25900.0, 1300.0, 1310.0, 1290.0])
+    out, ev = trim_at_corporate_action(df)
+    assert ev == "2026-07-04"
+    assert len(out) == 3                       # hanya bar sejak hari split
+    assert out["close"].max() < 2000           # tak ada lagi harga pra-split
+    assert list(out.index) == [0, 1, 2]        # index di-reset
+
+
+def test_trim_at_corporate_action_no_op():
+    from markup_radar.ingest.ohlc_client import trim_at_corporate_action
+    df = _series([100.0, 102.0, 99.0])
+    out, ev = trim_at_corporate_action(df)
+    assert ev is None and len(out) == 3
+
+
+def test_trim_ambil_event_terakhir():
+    """Dua split di satu deret -> potong di yang TERAKHIR."""
+    from markup_radar.ingest.ohlc_client import trim_at_corporate_action
+    df = _series([1000.0, 100.0, 101.0, 10.0, 10.5])
+    out, ev = trim_at_corporate_action(df)
+    assert ev == "2026-07-04" and len(out) == 2

@@ -82,6 +82,16 @@ def _atomic_write(out_path: Path, content: str) -> None:
 # Prioritas slot live-watch: setup entry (MARKUP_*) dulu, baru pantau BOW.
 _LIVE_TIER = {"MARKUP_CONFIRMED": 0, "MARKUP_START": 1, "ACCUMULATION_ONGOING": 2}
 
+# Minimum bar OHLCV supaya RVOL (MA20), donchian (20) & range_position berarti.
+MIN_BARS = 21
+
+# Ambang "scan ini gagal, bukan pasar yang sepi": porsi kode yang datanya tak
+# bisa ditarik. Audit 2026-09-09 menemukan 5 malam (21-22 Jul, 21/24/28 Agu) di
+# mana token Invezgo balas 401 untuk SEMUA kode; run tetap selesai dan mengirim
+# "Tidak ada sinyal actionable hari ini" — tak bisa dibedakan dari malam sepi
+# yang normal. Di atas ambang ini, run melapor sebagai GANGGUAN.
+SCAN_FAILURE_ALERT_RATIO = 0.30
+
 
 def _write_live_codes(actionable: list[dict], cfg, *, dry_run: bool) -> list[str]:
     """Pilih subset kode untuk live-watch besok pagi dari hasil scan EOD.
@@ -397,9 +407,16 @@ def main() -> int:
     if sink is not None:
         print("[info] mirror Google Sheets aktif.", file=sys.stderr)
 
+    # Peringatan operasional (bukan sinyal trading) yang dikirim terpisah ke
+    # Telegram di akhir run: provider narasi mati, scan gagal massal, IHSG kosong.
+    # Ada karena kegagalan senyap terbukti berlangsung berminggu-minggu tanpa
+    # terdeteksi — log VPS saja tidak cukup, harus sampai ke HP.
+    ops_alerts: list[str] = []
+
     # Data market-wide: IHSG ditarik 1x per run, dipakai semua saham (hemat kuota).
     ihsg = fetch_ihsg(client, *_date_range(date, cfg.windows.get("ihsg_ma", 50) * 2))
     ihsg_close = ihsg["close"] if not ihsg.empty else None
+    ihsg_close_ok = ihsg_close is not None and not ihsg.empty
 
     # Regime selector (spec §4.6): IHSG vs MA -> profil parameter, di-resolve SEKALI
     # per run. eff = thresholds dasar + overlay profil regime (rvol/RS-gate/SL/RR).
@@ -412,14 +429,29 @@ def main() -> int:
 
     scan_log: list[dict] = []   # SEMUA kode (termasuk NEUTRAL) untuk mirror Sheets
     candidates: list[dict] = []  # lolos alert_states, BELUM lewat gate alert
+    failed: list[str] = []       # kode yang datanya gagal ditarik / dihitung
+    thin: list[str] = []         # kode dgn histori terlalu pendek (mis. pasca-split)
     for code in cfg.watchlist:
         try:
             data = build_stock_data(
                 client, code, date, cfg, ihsg_close=ihsg_close,
             )
+            # Histori terlalu pendek -> RVOL/MA/donchian dihitung di atas
+            # beberapa bar saja dan menghasilkan angka yang kelihatan valid tapi
+            # tidak berarti. Penyebab paling umum: deret dipotong di aksi
+            # korporasi (lihat ohlc_client.trim_at_corporate_action) atau saham
+            # baru IPO. Lebih baik DILEWATI daripada memancarkan sinyal palsu —
+            # MLPT pasca-split 1:20 sempat memicu MARKUP_START dgn RVOL 341x.
+            if len(data.ohlcv) < MIN_BARS:
+                thin.append(code)
+                print(f"[WARN] {code}: histori cuma {len(data.ohlcv)} bar "
+                      f"(< {MIN_BARS}) — dilewati, sinyal tak bisa dipercaya.",
+                      file=sys.stderr)
+                continue
             signals = compute_signals(data, cfg.thresholds, cfg.windows, cfg.broker_top_n)
             state, conf, levels = evaluate(data, signals, cfg, eff)
         except Exception as exc:  # noqa: BLE001 — jangan gagalkan seluruh batch
+            failed.append(code)
             print(f"[WARN] {code}: {exc}", file=sys.stderr)
             continue
 
@@ -444,6 +476,30 @@ def main() -> int:
         if state in cfg.alert_states:
             candidates.append(record)
         scan_log.append(record)
+
+    # --- Kesehatan scan: gangguan atau memang pasar sepi? --------------------
+    n_total = len(cfg.watchlist)
+    n_bad = len(failed) + len(thin)
+    if n_total and n_bad / n_total >= SCAN_FAILURE_ALERT_RATIO:
+        print(f"[ERROR] SCAN GAGAL SEBAGIAN BESAR: {len(failed)} error + "
+              f"{len(thin)} histori tipis dari {n_total} kode "
+              f"({n_bad / n_total:.0%}). Hasil malam ini TIDAK bisa dipercaya.",
+              file=sys.stderr)
+        ops_alerts.append(
+            f"Scan bermasalah: {n_bad}/{n_total} kode gagal "
+            f"({n_bad / n_total:.0%}). Cek token Invezgo (401), kuota (429), "
+            f"dan konektivitas VPS. Sinyal malam ini tidak bisa dipercaya."
+        )
+    elif failed:
+        print(f"[info] {len(failed)}/{n_total} kode gagal ditarik: "
+              f"{', '.join(failed[:12])}{' ...' if len(failed) > 12 else ''}",
+              file=sys.stderr)
+    if not ihsg_close_ok:
+        ops_alerts.append(
+            "IHSG (COMPOSITE) gagal ditarik — regime jatuh ke fail-safe BEARISH "
+            "dan relative strength tak terhitung. Sinyal malam ini lebih ketat "
+            "dari seharusnya."
+        )
 
     # --- Gate alert (blok `alert_filters`) -----------------------------------
     # Memotong jalur KIRIM saja: semua kode di atas SUDAH tersimpan ke DB apa
@@ -498,6 +554,7 @@ def main() -> int:
         # molor belasan menit. Menyebarkan panggilan menjaganya di bawah limit
         # supaya model utama yang cepat (deepseek ~10-25s) menangani mayoritas.
         pace = float(narrative_cfg.get("pace_seconds", 1.2))
+        nstats: dict = {}
         for i, record in enumerate(actionable):
             if i and pace > 0:
                 time.sleep(pace)
@@ -508,7 +565,27 @@ def main() -> int:
                 model=narrative_cfg.get("model", ""),
                 fallback_models=narrative_cfg.get("fallback_models") or [],
                 extra_context=_extra_context(record),
+                stats=nstats,
             )
+        # Deteksi provider mati. Sebelum ini kegagalan cuma [WARN] per sinyal dan
+        # terbukti tak terbaca: semua model NVIDIA di config EOL sejak 7 Agu 2026,
+        # 20 run jalan dgn narasi rule-based sampai ketahuan saat audit 9 Sep.
+        n_llm, n_fb = nstats.get("llm", 0), nstats.get("fallback", 0)
+        if n_fb and n_llm + n_fb:
+            share = n_fb / (n_llm + n_fb)
+            level = "ERROR" if share >= 0.5 else "WARN"
+            print(f"[{level}] NARASI: {n_fb}/{n_llm + n_fb} jatuh ke rule-based "
+                  f"({share:.0%}). Model utama: {narrative_cfg.get('model')!r}.",
+                  file=sys.stderr)
+            if share >= 0.5:
+                print("         Provider kemungkinan MATI (EOL/404/timeout). "
+                      "Jalankan: python scripts/probe_narrative_models.py",
+                      file=sys.stderr)
+                ops_alerts.append(
+                    f"Narasi LLM mati: {n_fb}/{n_llm + n_fb} sinyal pakai rule-based. "
+                    f"Model {narrative_cfg.get('model')} kemungkinan EOL — "
+                    f"jalankan probe_narrative_models.py."
+                )
 
     # Log konsol: format gabungan padat (ringkas untuk file log VPS).
     print("\n" + format_alert(scan_date_str, actionable))
@@ -539,6 +616,21 @@ def main() -> int:
             print(f"\n[OK] {len(sent_codes)} sinyal terkirim ke Telegram "
                   f"({', '.join(sent_codes)}).")
             store.mark_alert_sent(scan_date_str, sent_codes)
+
+    # Peringatan OPERASIONAL — dikirim walau tak ada sinyal, justru karena
+    # "tidak ada sinyal" adalah tampilan yang sama persis dengan "engine rusak".
+    if ops_alerts:
+        body = "\n\n".join(f"• {a}" for a in ops_alerts)
+        msg = (f"⚠️ <b>Markup Radar — peringatan sistem</b>\n"
+               f"<i>{scan_date_str}</i>\n\n{body}")
+        print(f"\n[ERROR] {len(ops_alerts)} peringatan sistem:\n{body}", file=sys.stderr)
+        if args.dry_run:
+            print("[info] dry-run: peringatan sistem tidak dikirim.", file=sys.stderr)
+        else:
+            try:
+                send_telegram(cfg.telegram_bot_token, cfg.telegram_chat_id, msg)
+            except Exception as exc:  # noqa: BLE001 — sudah tercetak di log
+                print(f"[WARN] gagal kirim peringatan sistem: {exc}", file=sys.stderr)
 
     # Daftar kode live-watch besok pagi (subset setup MARKUP terbaik, top-N by
     # confidence) -> live_today.txt. Dipakai run_live.sh agar polling fokus & hemat

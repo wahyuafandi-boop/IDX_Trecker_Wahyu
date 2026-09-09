@@ -27,6 +27,7 @@ def generate_narrative(
     fallback_models: list[str] | None = None,
     extra_context: str = "",
     verbose: bool = True,
+    stats: dict | None = None,
 ) -> str:
     """Satu narasi bahasa awam untuk satu emiten.
 
@@ -35,29 +36,43 @@ def generate_narrative(
     dengan alasan dicetak ke stderr supaya kelihatan di log VPS (bukan diam —
     provider mati harus terbaca saat audit log, bukan cuma terasa dari kualitas
     narasi yang menurun).
+
+    `stats` (opsional): dict yang diisi di tempat dengan hitungan `llm` /
+    `fallback` / daftar `errors`. Dipakai run_daily untuk MENDETEKSI provider
+    yang mati total. Sebelum ini kegagalan cuma jadi baris [WARN] per sinyal —
+    dan memang terbukti tak terbaca: seluruh model NVIDIA di config EOL sejak
+    7 Agustus 2026 (410 Gone) dan 20 run berjalan dengan narasi rule-based
+    tanpa ada yang sadar sampai audit 9 September.
     """
     prov = (provider or "nvidia").strip().lower()
     try:
         if prov == "nvidia":
-            return _nvidia.generate(
+            out = _nvidia.generate(
                 code, signals,
                 api_key=api_key,
-                model=model or "qwen/qwen3.5-397b-a17b",
+                model=model or "moonshotai/kimi-k3",
                 fallback_models=fallback_models,
                 extra_context=extra_context,
             )
-        if prov == "claude":
-            return _claude.generate(
+        elif prov == "claude":
+            out = _claude.generate(
                 code, signals,
                 api_key=api_key,
                 model=model or "claude-opus-4-8",
                 extra_context=extra_context,
             )
-        if prov in ("none", "off", "rule"):
+        elif prov in ("none", "off", "rule"):
             return fallback(code, state, signals)
-        raise ValueError(f"provider tidak dikenal: {provider!r}")
+        else:
+            raise ValueError(f"provider tidak dikenal: {provider!r}")
     except Exception as exc:  # noqa: BLE001 — narasi opsional, run tetap jalan
         if verbose:
             print(f"[WARN] narasi {code} via {prov} gagal -> pakai rule-based: {exc}",
                   file=sys.stderr)
+        if stats is not None:
+            stats["fallback"] = stats.get("fallback", 0) + 1
+            stats.setdefault("errors", []).append(f"{code}: {exc}")
         return fallback(code, state, signals)
+    if stats is not None:
+        stats["llm"] = stats.get("llm", 0) + 1
+    return out

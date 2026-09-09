@@ -196,13 +196,35 @@ telegram:
 # down. Utama = deepseek: satu-satunya 0-fatal di KETIGA fixture (termasuk jebakan
 # bullish PACK) + latensi terbaik di kelasnya (~45s). gemma skornya tertinggi tapi
 # SERING TIMEOUT (gagal PACK 2x saat uji) -> ditaruh cadangan terakhir.
+# PROBE ULANG 2026-09-09 (scripts/probe_narrative_models.py) — audit menemukan
+# narasi LLM MATI TOTAL sejak 7 Agustus 2026: seluruh model di config kena
+# HTTP 410 Gone, 20 run berjalan dgn narasi rule-based tanpa terdeteksi karena
+# kegagalan cuma jadi baris [WARN] per sinyal. Sekarang run_daily menghitungnya
+# dan berteriak kalau mayoritas narasi jatuh ke rule-based.
+#
+# Hasil probe 22 model katalog ke /v1/chat/completions — HANYA 2 YANG HIDUP:
+#   moonshotai/kimi-k3        OK ~13s  narasi akurat, 0 pembalikan fakta  <- utama
+#   openai/gpt-oss-20b        OK  ~9s  akurat, frasa agak kaku            <- cadangan
+# EOL (410 Gone), JANGAN dipakai lagi:
+#   deepseek-ai/deepseek-v4-pro (EOL 2026-08-07), openai/gpt-oss-120b (EOL 2026-09-03)
+# Ada di katalog TAPI 404 di chat/completions (jebakan katalog yang sudah dikenal):
+#   moonshotai/kimi-k2.6, nvidia/llama-3.1-nemotron-ultra-253b-v1, mistralai/mistral-large,
+#   mistralai/mistral-large-2-instruct, nvidia/llama-3.1-nemotron-70b-instruct,
+#   microsoft/phi-3.5-moe-instruct, google/gemma-3-12b-it, mistralai/mixtral-8x22b-v0.1,
+#   nv-mistralai/mistral-nemo-12b-instruct
+# TIMEOUT bahkan pada 150 detik (terdaftar tapi praktis tak terpakai):
+#   deepseek-ai/deepseek-v4-pro-0813, deepseek-ai/deepseek-v4-flash-0731,
+#   google/gemma-4-31b-it, mistralai/mistral-nemotron, meta/llama-3.2-90b-vision-instruct
+#
+# CATATAN: cuma 2 model hidup = bantalan tipis. Kalau keduanya EOL, narasi jatuh
+# ke rule-based lagi — tapi kali ini run_daily akan melapor. Jalankan ulang
+# scripts/probe_narrative_models.py saat peringatan itu muncul.
 narrative:
   enabled: true
   provider: nvidia
-  model: deepseek-ai/deepseek-v4-pro
+  model: moonshotai/kimi-k3
   fallback_models:
-    - openai/gpt-oss-120b
-    - google/gemma-4-31b-it
+    - openai/gpt-oss-20b
 
 # Mirror hasil scan ke Google Sheets (persistensi histori + dashboard Phase 6).
 # Runner GitHub Actions ephemeral → SQLite reset tiap run; Sheets jadi penampung

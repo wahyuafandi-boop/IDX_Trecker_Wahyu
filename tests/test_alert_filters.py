@@ -166,3 +166,42 @@ def test_prior_run_hitungan():
 
 def test_prior_run_data_kurang_nol():
     assert prior_run(pd.Series([100.0, 110.0]), 10) == 0.0
+
+
+# --- Deteksi provider narasi mati (2026-09-09) -----------------------------
+
+def test_generate_narrative_menghitung_fallback(monkeypatch):
+    """stats harus membedakan narasi LLM asli vs jatuh ke rule-based."""
+    from markup_radar import narrative as narr
+
+    def boom(*a, **k):
+        raise RuntimeError("410 Gone")
+
+    monkeypatch.setattr(narr._nvidia, "generate", boom)
+    stats: dict = {}
+    sig = {"code": "AAAA", "done_ratio": 0.6, "rvol": 2.0, "close_in_range": 0.8,
+           "broker_net_buy_streak": 3}
+    out = narr.generate_narrative("AAAA", "MARKUP_START", sig,
+                                  api_key="x", stats=stats, verbose=False)
+    assert out                                   # tetap ada narasi (rule-based)
+    assert stats["fallback"] == 1 and "llm" not in stats
+    assert "410 Gone" in stats["errors"][0]
+
+
+def test_generate_narrative_menghitung_sukses(monkeypatch):
+    from markup_radar import narrative as narr
+
+    monkeypatch.setattr(narr._nvidia, "generate", lambda *a, **k: "narasi asli")
+    stats: dict = {}
+    out = narr.generate_narrative("AAAA", "MARKUP_START", {"code": "AAAA"},
+                                  api_key="x", stats=stats, verbose=False)
+    assert out == "narasi asli"
+    assert stats == {"llm": 1}
+
+
+def test_generate_narrative_tanpa_stats_tetap_jalan(monkeypatch):
+    """Backward-compat: pemanggil lama tak mengirim stats."""
+    from markup_radar import narrative as narr
+
+    monkeypatch.setattr(narr._nvidia, "generate", lambda *a, **k: "ok")
+    assert narr.generate_narrative("A", "S", {"code": "A"}, api_key="x") == "ok"
