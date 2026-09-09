@@ -236,12 +236,42 @@ def format_alert(date: str, items: list[dict]) -> str:
 
 
 def format_batch_header(date: str, items: list[dict]) -> str:
-    """Satu baris pembuka sebelum rangkaian pesan per-sinyal (dikirim run_daily)."""
+    """Baris pembuka + DAFTAR URUT PRIORITAS sebelum rangkaian pesan per-sinyal.
+
+    User tak mungkin masuk ke semua sinyal satu malam, jadi header ini menjawab
+    "kalau cuma bisa ambil 2-3, yang mana". Urutan & skor dari
+    `scoring.probability.rank_alerts` (dipanggil run_daily sebelum kirim).
+    """
     n = len(items)
-    return (
-        f"📡 <b>Markup Radar</b> · {_fmt_date_id(date)}\n"
-        f"{n} sinyal terpantau hari ini — rincian menyusul per saham 👇"
-    )
+    lines = [
+        f"📡 <b>Markup Radar</b> · {_fmt_date_id(date)}",
+        f"{n} sinyal terpantau hari ini — rincian menyusul per saham 👇",
+    ]
+
+    ranked = [it for it in items if it.get("rank")]
+    if ranked:
+        lines += ["", "🎯 <b>Urutan prioritas entry</b>"]
+        for it in sorted(ranked, key=lambda x: x["rank"]):
+            code = html.escape(str(it.get("code", "?")))
+            band = it.get("score_band") or "-"
+            rate = it.get("score_hit_rate")
+            tail = f" · historis menang ~{rate:.0%}" if rate else ""
+            mark = "⭐" if band == "TINGGI" else "  "
+            lines.append(f"{mark} {it['rank']}. <b>{code}</b> — "
+                         f"skor {it.get('entry_score')}/100 ({band}){tail}")
+        best = [it for it in ranked if it.get("score_band") == "TINGGI"]
+        if best:
+            lines += ["", f"⭐ = band terbukti (78% menang, n=87). "
+                          f"Ada {len(best)} malam ini."]
+        else:
+            lines += ["", "⚠️ Tak ada yang masuk band TINGGI malam ini — "
+                          "sisanya setara lempar koin (~50%). Boleh dilewat."]
+
+    unranked = [it for it in items if not it.get("rank")]
+    if unranked:
+        codes = ", ".join(html.escape(str(i.get("code", "?"))) for i in unranked)
+        lines += ["", f"🔻 Peringatan jual (tak diskor): {codes}"]
+    return "\n".join(lines)
 
 
 def format_signal(date: str, it: dict) -> str:
@@ -256,12 +286,27 @@ def format_signal(date: str, it: dict) -> str:
     emoji, label, meaning = _STATE_INFO.get(state, ("•", str(state), ""))
     is_markup = state in _MARKUP_STATES
 
-    # Header + subjudul (tanggal, + kekuatan sinyal hanya utk setup MARKUP).
+    # Header + subjudul. Peringkat entry ditaruh paling atas — itu yang dipakai
+    # user memutuskan masuk atau lewat. `confidence` SENGAJA tak ditampilkan
+    # lagi: diuji atas 391 alert produksi skor itu TERBALIK (AUC 0.439, conf>=60
+    # justru menang 44% vs conf<40 menang 64%) — menampilkannya menyesatkan.
     lines = [f"{emoji} <b>{code}</b> · {label}"]
     sub = _fmt_date_id(date)
-    if is_markup:
-        sub += f" · Kekuatan sinyal {it.get('confidence', 0)}/100"
+    rank, score = it.get("rank"), it.get("entry_score")
+    if rank and score is not None:
+        band = it.get("score_band") or "-"
+        star = "⭐ " if band == "TINGGI" else ""
+        sub += f" · {star}Prioritas #{rank} · skor {score}/100 ({band})"
     lines += [sub, ""]
+
+    rate = it.get("score_hit_rate")
+    if rank and rate:
+        if it.get("score_band") == "TINGGI":
+            lines += [f"⭐ <i>Band terbukti: setup seperti ini menang "
+                      f"{rate:.0%} secara historis (n=87).</i>", ""]
+        else:
+            lines += [f"<i>Peluang historis setup seperti ini ~{rate:.0%} — "
+                      f"setara lempar koin. Prioritaskan yang berbintang.</i>", ""]
 
     if meaning:
         lines += [f"<i>{html.escape(meaning)}</i>", ""]

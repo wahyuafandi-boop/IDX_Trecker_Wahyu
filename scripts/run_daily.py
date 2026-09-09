@@ -54,7 +54,7 @@ from markup_radar.ingest.ownership_client import (
     fmt_rp,
 )
 from markup_radar.narrative import generate_narrative
-from markup_radar.scoring import classify, confidence_markup_start
+from markup_radar.scoring import classify, confidence_markup_start, rank_alerts
 from markup_radar.signals import StockData, compute_signals
 from markup_radar.signals.levels import bow_zone, compute_trade_levels
 from markup_radar.signals.market import market_regime
@@ -118,7 +118,11 @@ def _write_live_codes(actionable: list[dict], cfg, *, dry_run: bool) -> list[str
     levels_path = Path(lw.get("levels_file", "live_levels.json"))
 
     picks = [r for r in actionable if r.get("state") in states]
-    picks.sort(key=lambda r: (_LIVE_TIER.get(r.get("state"), 9),
+    # Slot live dipilih by PERINGKAT ENTRY dulu (rank_alerts), baru tier state.
+    # `confidence` cuma tie-break terakhir — skor itu terbukti anti-prediktif
+    # (AUC 0.439), memakainya sebagai kunci utama memboroskan slot live.
+    picks.sort(key=lambda r: (r.get("rank") or 999,
+                              _LIVE_TIER.get(r.get("state"), 9),
                               -r.get("confidence", 0)))
     picks = picks[:max_codes]
     codes = [r["code"] for r in picks]
@@ -176,10 +180,15 @@ def _enrich_actionable(
     """
     if not actionable:
         return
+    # Prioritas cap kuota: pakai PERINGKAT ENTRY (rank_alerts) kalau sudah ada.
+    # Dulu memakai `confidence`, padahal skor itu terbukti TERBALIK (AUC 0.439)
+    # — akibatnya kuota enrichment justru terpakai pada kandidat terburuk.
     prio = {"MARKUP_CONFIRMED": 0, "MARKUP_START": 1}
     ranked = sorted(
         actionable,
-        key=lambda r: (prio.get(r["state"], 9), -r.get("confidence", 0)),
+        key=lambda r: (r.get("rank") or 999,
+                       prio.get(r["state"], 9),
+                       -r.get("confidence", 0)),
     )
 
     ins_cfg = cfg.insider
@@ -534,6 +543,19 @@ def main() -> int:
             by_reason.setdefault(r["suppressed"].split("(")[0], []).append(r["code"])
         for reason, codes in sorted(by_reason.items()):
             print(f"         - {reason}: {', '.join(sorted(codes))}", file=sys.stderr)
+
+    # Urutkan berdasarkan PELUANG ENTRY (scoring/probability.py) — user tak
+    # mungkin masuk ke 8-10 sinyal semalam, jadi yang terpenting adalah "mana
+    # dulu". Ditaruh sebelum enrichment supaya kuota insider/ownership (cap 10
+    # kode) terpakai pada kandidat terbaik, bukan yang kebetulan di urutan atas.
+    # CATATAN: ini BUKAN `confidence` — skor itu diuji terbalik (AUC 0.439).
+    actionable = rank_alerts(actionable)
+    top = [r for r in actionable if r.get("score_band") == "TINGGI"]
+    print(f"[info] peringkat entry: {len(top)} band TINGGI dari "
+          f"{sum(1 for r in actionable if r.get('rank'))} sinyal terskor"
+          + (f" — teratas: {', '.join(r['code'] for r in actionable[:3] if r.get('rank'))}"
+             if any(r.get("rank") for r in actionable) else ""),
+          file=sys.stderr)
 
     # Konteks insider + corporate action utk kode actionable (fitur opsional,
     # blok `insider` di settings.yaml). Dilakukan SEBELUM narasi supaya Claude
