@@ -322,6 +322,11 @@ def _cycle(client, codes, cfg, prev, last_verdict, accum, accum_lbl,
         if send_tg and (flip_bullish or wall_pulled):
             # Pesan ramah-awam (gaya auto-trading); flip bullish diprioritaskan
             # atas wall-pulled bila keduanya kebetulan sama-sama benar.
+            # Angka konkret tembok diambil dari siklus SEBELUMNYA (`p`): itulah
+            # kondisi tembok sebelum menyusut. `offer_price` = harga tempat
+            # tembok berdiri; `owall` = ukurannya. Level entry/SL dari sidecar
+            # EOD supaya pesan bisa langsung bilang "sudah lewat entry atau belum".
+            lv = levels.get(code) or {}
             try:
                 send_telegram(token, chat_id, format_live_signal(
                     code,
@@ -331,6 +336,12 @@ def _cycle(client, codes, cfg, prev, last_verdict, accum, accum_lbl,
                     imb=imb,
                     accum_label=accum_lbl.get(code, ""),
                     time_str=ts[:5],
+                    wall_price=p.get("offer_price") or q.get("offer_best_price"),
+                    wall_before=p.get("owall"),
+                    wall_after=q["offer_top_lot"],
+                    price_now=_mid_price(q),
+                    entry=lv.get("entry"),
+                    stop_loss=lv.get("support"),
                 ))
             except Exception as exc:  # noqa: BLE001
                 print(f"  [WARN] telegram: {exc}")

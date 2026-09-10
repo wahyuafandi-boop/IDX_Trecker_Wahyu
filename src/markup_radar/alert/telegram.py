@@ -446,6 +446,25 @@ _LIVE_WALL_VERDICT = {
 }
 
 
+def _fmt_lot(v: float) -> str:
+    """Lot -> '12.500' / '1,2 jt' (ribuan pakai titik, gaya Indonesia)."""
+    v = float(v or 0)
+    if v >= 1_000_000:
+        return f"{v / 1_000_000:.1f} jt".replace(".", ",")
+    return f"{v:,.0f}".replace(",", ".")
+
+
+def _fmt_harga(v: float) -> str:
+    """Harga gaya Indonesia. Desimal DIPERTAHANKAN kalau bermakna — level entry
+    hasil hitungan (resis x 1.005) sering berdesimal, dan membulatkannya bikin
+    kalimat 'harga 372 sudah lewat entry 372' yang membingungkan."""
+    v = float(v or 0)
+    if v < 1:
+        return f"{v:g}"
+    s = f"{v:,.2f}" if abs(v - round(v)) >= 0.005 else f"{v:,.0f}"
+    return s.replace(",", "@").replace(".", ",").replace("@", ".")
+
+
 def format_live_signal(
     code: str,
     *,
@@ -455,14 +474,24 @@ def format_live_signal(
     imb: float | None = None,
     accum_label: str = "",
     time_str: str = "",
+    wall_price: float | None = None,
+    wall_before: float | None = None,
+    wall_after: float | None = None,
+    price_now: float | None = None,
+    entry: float | None = None,
+    stop_loss: float | None = None,
 ) -> str:
     """Pesan Telegram ramah-awam untuk sinyal LIVE order book (dari live_watch).
 
     Dua pemicu: `wall_pulled` (tembok jual dicabut/dimakan saat akumulasi) atau
     transisi ke `verdict` bullish. `wall_verdict` ("EATEN"/"PULLED"/None) memilah
-    penyebab susutnya tembok bila live_watch berhasil cek bar intraday; None =
-    tak terbedakan -> pesan generik lama. Angka order book mentah (lot/order,
-    tag verdict teknis) diterjemahkan ke bahasa sehari-hari.
+    penyebab susutnya tembok bila live_watch berhasil cek bar intraday.
+
+    Blok ANGKA KONKRET (`wall_price`/`wall_before`/`wall_after`/`price_now`) dan
+    ARAHAN TINDAKAN (`entry`/`stop_loss` dari sidecar live_levels.json) ditambah
+    2026-09-10 atas permintaan user: "confirm volume besar di resisten harga
+    berapa berhasil dimakan" + minta notif entry. Semua opsional — tanpa data itu
+    pesan tetap terbentuk (versi lama), jadi pemanggil lama tak rusak.
     """
     safe = html.escape(str(code))
     if wall_pulled:
@@ -470,10 +499,39 @@ def format_live_signal(
     else:
         reason = _LIVE_VERDICT_ID.get(verdict or "", str(verdict or ""))
 
-    head = f"🟢 <b>{safe}</b> · Sinyal Live"
+    eaten = wall_pulled and wall_verdict == "EATEN"
+    cut = wall_pulled and wall_verdict == "PULLED"
+    judul = ("Tembok jual DIMAKAN" if eaten else
+             "Tembok jual DICABUT" if cut else
+             "Tembok jual menyusut" if wall_pulled else "Sinyal Live")
+    head = f"{'🟢' if eaten else '🟡'} <b>{safe}</b> · {judul}"
     if time_str:
         head += f" · {html.escape(time_str)}"
-    lines = [head, "", f"<i>{html.escape(reason)}</i>", ""]
+    lines = [head, ""]
+
+    # --- Cerita konkret: berapa lot, di harga berapa, sisa berapa -----------
+    if wall_pulled and wall_price:
+        susut = ""
+        if wall_before and wall_after is not None:
+            hilang = max(0.0, float(wall_before) - float(wall_after))
+            pct = hilang / float(wall_before) if wall_before else 0
+            susut = (f" Dari {_fmt_lot(wall_before)} lot tinggal "
+                     f"{_fmt_lot(wall_after)} lot ({pct:.0%} hilang).")
+        if eaten:
+            lines.append(f"Antrian jual menumpuk di harga <b>{_fmt_harga(wall_price)}</b> "
+                         f"habis diserap pembeli.{susut}")
+        elif cut:
+            lines.append(f"Antrian jual di harga <b>{_fmt_harga(wall_price)}</b> "
+                         f"ditarik penjualnya, bukan dimakan — harga tak pernah "
+                         f"menyentuh level itu.{susut}")
+        else:
+            lines.append(f"Antrian jual di harga <b>{_fmt_harga(wall_price)}</b> "
+                         f"menyusut.{susut}")
+        if price_now:
+            lines.append(f"Harga sekarang <b>{_fmt_harga(price_now)}</b>.")
+        lines.append("")
+
+    lines += [f"<i>{html.escape(reason)}</i>", ""]
 
     if imb is not None:
         if imb >= 1.05:
@@ -491,6 +549,43 @@ def format_live_signal(
     elif accum_label == "no-akum":
         lines.append("🏦 Broker belum terlihat memborong")
 
+    # --- Arahan tindakan ----------------------------------------------------
+    # Sengaja TIDAK pernah bilang "beli sekarang" tanpa syarat: pesan menyebut
+    # syarat yang HARUS dicek user sendiri (harga vs level entry), karena data
+    # order book bisa basi beberapa detik dan sinyal live belum tervalidasi.
+    lines.append("")
+    if cut:
+        lines += ["⏸️ <b>TUNGGU DULU</b>",
+                  "Temboknya cuma ditarik — belum ada pembeli nyata yang menyerap. "
+                  "Tunggu harga benar-benar diuji di level itu."]
+    elif eaten:
+        # Judul HARUS cocok dengan isinya. Tembok dimakan tapi harga belum
+        # menembus level entry != saatnya masuk — jangan bilang "timing entry"
+        # lalu di baris bawahnya menyuruh menunggu.
+        belum_tembus = entry and price_now and float(price_now) < float(entry)
+        if belum_tembus:
+            lines += ["👀 <b>SIAP-SIAP, BELUM MASUK</b>",
+                      f"Pembeli sudah menyerap barang, tapi harga "
+                      f"{_fmt_harga(price_now)} masih di bawah level entry "
+                      f"{_fmt_harga(entry)} dari scan semalam. "
+                      f"Masuk setelah tembus level itu."]
+        else:
+            lines.append("✅ <b>INI TIMING ENTRY-nya</b>")
+            if entry and price_now:
+                lines.append(f"Harga {_fmt_harga(price_now)} sudah melewati level "
+                             f"entry {_fmt_harga(entry)} dari scan semalam.")
+            elif entry:
+                lines.append(f"Level entry dari scan semalam: {_fmt_harga(entry)}.")
+        if stop_loss:
+            lines.append(f"🛑 Stop loss {_fmt_harga(stop_loss)} — "
+                         f"setup batal kalau tutup di bawah level itu.")
+    elif wall_pulled:
+        lines += ["👀 <b>SIAP-SIAP</b>",
+                  "Tembok menyusut tapi belum jelas dimakan atau dicabut. "
+                  "Pantau satu-dua siklus lagi."]
+
+    while lines and lines[-1] == "":
+        lines.pop()
     lines.append("")
     lines.append("⚠️ <i>Pantauan real-time order book, bukan ajakan beli/jual. "
                  "Atur timing &amp; risiko sendiri.</i>")

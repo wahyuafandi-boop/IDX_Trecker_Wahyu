@@ -177,3 +177,47 @@ def test_ownership_wording_follows_retail_pct():
     assert "indikasi distribusi" in high
     mid = _why_bullets({}, {"retail_pct": 35.0})[-1]
     assert "cuma" not in mid and "Mayoritas" not in mid
+
+
+# --- Live signal: angka konkret + arahan tindakan (2026-09-10) --------------
+
+def test_live_tembok_dimakan_sebut_harga_dan_lot():
+    from markup_radar.alert.telegram import format_live_signal
+    m = format_live_signal("SMDR", wall_pulled=True, wall_verdict="EATEN",
+                           imb=1.8, accum_label="AKUM/4d", time_str="10:24",
+                           wall_price=370, wall_before=12500, wall_after=3100,
+                           price_now=372, entry=371.85, stop_loss=350)
+    assert "DIMAKAN" in m
+    assert "370" in m and "12.500" in m and "3.100" in m   # harga & lot disebut
+    assert "75%" in m                                       # porsi yang hilang
+    assert "INI TIMING ENTRY" in m
+    assert "371,85" in m                                    # desimal dipertahankan
+    assert "Stop loss 350" in m
+
+
+def test_live_dimakan_tapi_harga_belum_tembus_entry():
+    """Judul harus cocok isi: jangan bilang 'timing entry' lalu suruh menunggu."""
+    from markup_radar.alert.telegram import format_live_signal
+    m = format_live_signal("TRON", wall_pulled=True, wall_verdict="EATEN",
+                           wall_price=111, wall_before=80000, wall_after=15000,
+                           price_now=109, entry=111.55, stop_loss=100.13)
+    assert "BELUM MASUK" in m
+    assert "INI TIMING ENTRY" not in m
+
+
+def test_live_tembok_dicabut_menyuruh_tunggu():
+    from markup_radar.alert.telegram import format_live_signal
+    m = format_live_signal("PACK", wall_pulled=True, wall_verdict="PULLED",
+                           wall_price=386, wall_before=48000, wall_after=9200,
+                           price_now=379, entry=387.93)
+    assert "DICABUT" in m and "TUNGGU DULU" in m
+    assert "INI TIMING ENTRY" not in m
+
+
+def test_live_tanpa_data_tembok_tetap_jalan():
+    """Backward-compat: pemanggil lama tak mengirim angka tembok."""
+    from markup_radar.alert.telegram import format_live_signal
+    m = format_live_signal("JECX", verdict="FAKE_OVER", imb=2.1,
+                           accum_label="AKUM/5d", time_str="11:02")
+    assert "JECX" in m and "Antrian beli 2.1" in m
+    assert "\n\n\n" not in m          # tak ada baris kosong ganda
