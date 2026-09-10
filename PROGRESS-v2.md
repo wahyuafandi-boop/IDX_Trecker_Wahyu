@@ -33,6 +33,124 @@
 
 ## Changelog
 
+- **2026-09-09 (2) — Perbaikan 3 kegagalan senyap + skrip deploy.** Semuanya berbagi akar
+  sama: kerusakan cuma jadi baris `[WARN]` di log VPS yang tak pernah dibaca, sementara
+  output ke Telegram tetap terlihat normal.
+  (1) **Narasi LLM mati total sejak 7 Agu** (20 run): semua model di config kena HTTP 410
+  Gone (deepseek-v4-pro EOL 07-08, gpt-oss-120b EOL 03-09, gemma-4-31b-it timeout permanen).
+  Probe 22 model katalog → **HANYA 2 HIDUP**: `moonshotai/kimi-k3` (~13s, akurat, 0
+  pembalikan fakta — jadi utama) & `openai/gpt-oss-20b` (~9s, cadangan). 9 model terdaftar
+  tapi 404 di chat/completions, 5 timeout bahkan pada 150s. Tooling baru
+  `scripts/probe_narrative_models.py` (prompt narasi ASLI + fixture jebakan → model yang
+  membalik fakta ikut ketahuan). `generate_narrative(stats=...)` → run_daily menghitung
+  llm vs fallback & MELAPOR (ERROR + peringatan Telegram) saat ≥50% fallback. Default model
+  mati (`qwen3.5-397b`, 404) ikut diganti.
+  (2) **Chart Invezgo tak adjusted split**: `ohlc_client.detect_corporate_action` /
+  `trim_at_corporate_action` — gap close-to-close < −35% (di luar ARB maks IDX 35%) atau
+  > +60% (reverse split) → bar pra-event dibuang. `run_daily.MIN_BARS = 21` → histori
+  terlalu pendek (konsekuensi pemotongan, atau IPO baru) = saham DILEWATI, bukan dihitung
+  di atas data tipis. Ini yang bikin MLPT pasca-split 1:20 memicu MARKUP_START dgn RVOL
+  341× & level resistance 29.500 vs support 1.075.
+  (3) **Run gagal total menyamar jadi malam sepi**: 5 malam token Invezgo balas 401 utk
+  SEMUA kode, run tetap kirim "Tidak ada sinyal actionable hari ini". Sekarang run_daily
+  menghitung kode gagal/tipis; ≥30% → ERROR + **peringatan sistem terpisah ke Telegram**
+  (justru dikirim saat tak ada sinyal, karena itulah tampilan yang menyamarkan kerusakan).
+  IHSG kosong juga dilaporkan (regime jatuh ke fail-safe BEARISH → sinyal lebih ketat dari
+  seharusnya).
+  (4) **Runner ganda dimatikan**: Task Scheduler Windows `MarkupRadar-EOD` ternyata masih
+  `Ready` (jalan Sen–Jum 19:05, terakhir 9 Sep 20:00) — sumber alert dobel di 27 tanggal.
+  Sudah `Disable-ScheduledTask`. VPS = runner tunggal (sesuai niat awal proyek).
+  Hidupkan lagi: `Enable-ScheduledTask -TaskName 'MarkupRadar-EOD'`.
+  (5) `deploy_vps.sh` (baru): scp kode+config ke VPS lewat SATU koneksi ControlMaster
+  (VPS pakai fail2ban — koneksi beruntun bikin ke-ban), backup settings.yaml, lalu
+  jalankan test suite + smoke dry-run + tampilkan cron. Tidak menyentuh `.env`, `data/`,
+  `logs/`, `watchlist_today.txt`. Suite: 244 → 254 passed.
+
+- **2026-09-09 — GATE ALERT (posisi range + dedup episode), dari audit forward 405 sinyal.**
+  Audit menggabungkan DB VPS (3.848 baris) + DB runner Windows (2.758) → 4.433 baris unik,
+  enrichment dari 56 log EOD, forward return 264 seri OHLCV + IHSG. **Verdict: apa adanya
+  engine KALAH base-rate universe-nya sendiri** — win +10d 57% vs baseline date-matched
+  NEUTRAL 59%; median +1,1% vs +1,7%; excess vs IHSG −1,4% vs −0,8%; MFE≥+5% 64% vs 69%.
+  Dgn stop-loss malah lebih buruk dari baseline di ketiga aturan TP/SL → sinyal memilih
+  VOLATILITAS, bukan arah. 5 nama (PACK/SINI/PIPA/ISAT/SMLE) = 56% dari total cuan.
+  **Akar masalah = TIMING, bukan sinyal kosong:** 42% alert terbit saat close di puncak
+  range 20 bar (universe cuma 12% di sana) — bucket win 45%/excess −2,8%. Buang bucket itu →
+  alert MENANG baseline (66% vs 61%); zona tengah 0,30–0,60 → 77% vs 68%, excess +1,8%,
+  bertahan in-sample (77%) & out-of-sample (78%). Alert ke-2 dst tak menambah apa-apa
+  (MFE median +9,5%→+5,7%); 402 alert = cuma 196 ide unik.
+  **Implementasi:** (1) `price_volume.range_position` (S12) + `prior_run` (S13) — di-wire ke
+  `compute_signals` untuk SEMUA kode (masuk DB, bahan evaluasi native); (2) modul baru
+  `alert/filters.py` — `alert_gate`/`apply_alert_filters`, murni & testable; (3) blok
+  `alert_filters` di settings.yaml (max_range_position 0.85, max_prior_run 0.15,
+  min_broker_streak 1, dedup_episode gap 10 hari) + property `cfg.alert_filters`;
+  (4) `db.last_alert_dates` (hanya `alert_sent=1` → sinyal yang ditahan TIDAK memulai
+  episode baru) + kolom migrasi `suppressed` + `mark_suppressed`; (5) `run_daily`:
+  `candidates` → gate → `actionable`, ditaruh SEBELUM enrichment/narasi (yang ditahan tak
+  bakar kuota Invezgo 3–4 call/kode + panggilan LLM); `mark_suppressed` dijaga `not dry_run`
+  sejajar `mark_alert_sent`.
+  **PRINSIP: gate memotong jalur KIRIM saja** — classifier/confidence/levels/DB/Sheets tetap
+  memproses semua kode apa adanya, alasan tolak masuk kolom `suppressed` → yang disaring
+  tetap bisa dievaluasi forward. DISTRIBUTION_WARNING sengaja di luar `buy_side_states`
+  (per definisi `near_range_high`, gate beli akan membungkamnya justru saat relevan).
+  **Replay gate yang diimplement atas 402 alert historis:** 402 → 143 alert (8,6 → 3,5 per
+  malam, 36% lolos); win +10d 57% → 65%, median +1,0% → +2,3%, excess −1,4% → −0,5%; yang
+  ditahan win 51%/excess −2,0%. Konsisten dua periode (69% & 61%). Penahanan: episode_ulang
+  128, puncak_range 116, streak_broker 9, sudah_lari 6. **Ongkosnya jujur:** 3 ide besar
+  hilang total (KOKA +92,8%, DOOH +69,5%, VERN +59,7% — semua `puncak_range`); 9 dari 12
+  pemenang besar tetap lolos di alert PERTAMA & terbaiknya. Suite: 241 → 244 passed
+  (+24 test_alert_filters, +4 test_db, +3 test_run_daily).
+  *Belum dikerjakan (temuan audit lain):* narasi LLM mati total sejak 7 Agu (semua model
+  NVIDIA 410 Gone / gemma timeout, 20 run terdampak); runner ganda Windows+VPS (27 tanggal
+  dobel, alert kemungkinan terkirim 2–3×); chart Invezgo tak adjusted split (MLPT/RAJA/
+  RMKE/CYBR/COCO — MLPT sempat memicu MARKUP_START dgn RVOL 341× & level absurd); 5 malam
+  run mati senyap karena `fetch_ihsg COMPOSITE` gagal.
+
+- **2026-07-04 (2) — Float control + rotasi broker per kategori (Fase A, additive).** Menjawab teori
+  bandarmologi user: (1) porsi ritel <15-20% dari free float = supply terkunci gampang markup;
+  (2) dominasi smart money; (3) mapping broker ritel/asing/smart; (4) rotasi "ritel jual, asing/smart
+  tampung". Data diverifikasi live: `/analysis/shareholder/ksei/{code}?range=N` (bulanan, lembar per
+  tipe investor; **sum semua komponen 1 baris = total saham tercatat**, `*_id` = ritel individu),
+  `/analysis/shareholder/{code}` (komposisi + badge `{PENGENDALI}`), broker summary reuse. Implementasi:
+  `ingest/ownership_client.py` (parser murni + fetch fail-soft + `fmt_rp` T/M/jt), method client
+  `shareholder_ksei`/`shareholder_composition`, blok YAML `ownership:` + `broker_categories:`
+  (mapping heuristik EDITABLE: retail YP/PD/XC/XL/NI/SQ/EP/AG, foreign AK/BK/ZP/YU/KZ/RX/CG/MS, smart
+  AZ/CC/DX/LG/IF/YJ; di luar mapping = other). `_enrich_actionable` di-restruktur (gate terpisah
+  insider vs ownership), alert baris `🏦 Ritel x% (y% FF) · pengendali z% · ▲/▼pp/Nbln` + `🔄 Ritel/
+  Asing/Smart net`, narasi dapat konteks float+rotasi. Guard: rasio FF >100% (KSEI vs komposisi beda
+  tanggal) -> disembunyikan. **Classifier/confidence TIDAK disentuh** (Fase B nanti: angkat jadi bobot
+  via evaluate_signals setelah data forward cukup). Kuota +3 call/kode actionable. Temuan smoke:
+  SDRA ritel 17% dari FF (profil "terkunci"), WINR ritel +12pp/5bln (distribusi ke ritel — konsisten
+  harga 46→33) & rotasi small-cap sering numpuk di `other` (bandar pakai broker kecil non-mapping).
+  Suite: 187 passed (+9 test_ownership).
+- **2026-07-04 — Insider + corporate action enrichment (alert & narasi).** Endpoint baru
+  diverifikasi live via `scripts/verify_insider.py` (path dari invezgo-go-sdk analysis.go/others.go):
+  `/analysis/shareholder-insider` (market-wide, paged; **limit server maks ~50 — 100 balik HTTP 500**),
+  `/analysis/shareholder-one|-above`, `/analysis/calendar` (payload beda per type: RUPS_SCHEDULE/
+  PUBLIC_EXPOSE/CONVERTION/dst, bisa berisi event lampau), `/posts/space/{code}` (**wajib `page`+`limit`**,
+  isi = feed "Invezgo Report" dgn tag `<report title url type>`). Implementasi: (1) method baru di
+  `client.py` (shareholder_insider/one/above, calendar, stock_posts); (2) `ingest/insider_client.py` —
+  `fetch_insider_map` (1-6 call MARKET-WIDE, intersect lokal dgn kode actionable) +
+  `fetch_upcoming_actions` (1 call/kode actionable, cap `max_calendar_codes`, window
+  `calendar_horizon_days`); (3) `run_daily._enrich_actionable` setelah loop scan, narasi dipindah ke
+  SETELAH enrichment (Claude bisa sebut insider divestasi = red flag / akumulasi = konfirmasi via
+  `extra_context`); (4) alert Telegram baris baru `👤 Insider 30d: 🔴 -2.04 pp (10 laporan, terakhir
+  Divestasi ...)` + `📅 RUPS EGM 2026-07-15`; (5) blok YAML `insider:` (enabled/lookback_days/
+  calendar_horizon_days/max_calendar_codes). Kuota: +2-8 call/run HANYA bila ada actionable.
+  Smoke live: WINR 10 laporan sell net -2.04pp kedetek 🔴. Suite: 178 passed (+9 test_insider).
+- **2026-07-03 — Pencatatan sinyal + evaluasi forward (bahan validasi edge).** (1) **Sheets mirror
+  AKTIF**: `spreadsheet_id` diisi ("Markup Radar - Signal Log", share Editor ke SA
+  `id-n8n-sheets@trading-agent-497804...`; SA tak bisa create file sendiri — kuota Drive SA = 0 sejak
+  2025). Header ditambah kolom evaluasi (di AKHIR): `regime, relative_strength, alert_sent,
+  entry, stop_loss, take_profit, rr_realized`. (2) **SQLite migrasi otomatis** (`db.py`): kolom sama +
+  `mark_alert_sent(date, codes)` — dipanggil run_daily HANYA setelah `send_telegram` sukses, jadi
+  kebedakan sinyal terkirim vs tercatat; upsert tak me-reset flag. (3) **`evaluate_signals.py` +
+  `src/markup_radar/evaluate.py`**: baca semua baris DB → 1 call chart/kode → `fwd_close_5/10/20`
+  + MFE/MAE per sinyal (NEUTRAL = baseline) + simulasi levels terpublish (fill bila high≥entry ≤5
+  bar, SL-first — reuse `backtest.metrics`). Output console + `--csv` + `--sheets` (worksheet
+  `evaluation` & `eval_summary`, ditulis-ulang/idempoten). (4) `run_eval.sh` utk cron VPS mingguan
+  (Sabtu 02:00 UTC). Suite: 169 passed (+16: test_db 4, test_evaluate 9, test_sheets +3).
+  *Temuan ops:* Task Scheduler Windows EOD 19:05 MASIH aktif (baris 2026-07-03 muncul di DB lokal
+  saat sesi) padahal VPS = runner tunggal → dobel kuota/alert; matikan salah satu.
 - **2026-06-23 — F8 SELESAI (verdict: PERTAHANKAN prior).** Run penuh 7 saham (AVIA TPIA BULL
   HEAL MAPA BREN PTRO, 2024-06..2026-06) lewat `scripts/tune_f8.py`. Hasil: **sinyal MARKUP terlalu
   sedikit untuk tuning meyakinkan** — BULLISH n~5-28 across rvol grid (hit@fwd_close+5%/20d 17-29%,

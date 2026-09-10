@@ -1,53 +1,40 @@
-"""Generate narasi singkat per alert via Anthropic Claude API (opsional).
+"""Backend narasi via Anthropic Claude API.
 
-Contoh output:
-  "BBRI: done-offer 0.68, broker net buy 5 hari, RVOL 2.3x, close kuat ->
-   indikasi markup mulai. IHSG di atas MA50."
+Prompt-nya dipegang bersama di `narrative/prompt.py` — file ini murni transport
+ke Anthropic. Dipertahankan sebagai jalur balik: `narrative.provider` di
+settings.yaml boleh dikembalikan ke "claude" kapan saja tanpa ubah kode.
 """
 
 from __future__ import annotations
 
+from markup_radar.narrative.prompt import build_prompt
 
-def generate_narrative(
+
+class ClaudeError(RuntimeError):
+    """SDK tak terpasang, key kosong, atau panggilan API gagal."""
+
+
+def generate(
     code: str,
-    state: str,
     signals: dict,
     *,
     api_key: str,
     model: str = "claude-opus-4-8",
+    extra_context: str = "",
+    max_tokens: int = 220,
 ) -> str:
-    """Hasilkan satu kalimat narasi. Fallback ke ringkasan rule-based bila SDK
-    anthropic tidak terpasang atau API key kosong."""
+    """Hasilkan satu narasi singkat. Lempar ClaudeError bila tak bisa."""
     if not api_key:
-        return _fallback(code, state, signals)
+        raise ClaudeError("ANTHROPIC_API_KEY belum di-set.")
     try:
         import anthropic
-    except ImportError:
-        return _fallback(code, state, signals)
+    except ImportError as exc:
+        raise ClaudeError("SDK 'anthropic' belum terpasang.") from exc
 
     client = anthropic.Anthropic(api_key=api_key)
-    prompt = (
-        f"Buat satu kalimat ringkas (Bahasa Indonesia) untuk alert swing trading. "
-        f"Saham {code}, state {state}. Sinyal: "
-        f"done_ratio={signals.get('done_ratio'):.2f}, "
-        f"rvol={signals.get('rvol'):.1f}x, "
-        f"close_in_range={signals.get('close_in_range'):.2f}, "
-        f"broker_net_buy_streak={signals.get('broker_net_buy_streak')}, "
-        f"ihsg_above_ma50={signals.get('ihsg_above_ma50')}. "
-        f"Jangan beri rekomendasi beli/jual eksplisit, cukup deskripsi kondisi."
-    )
     msg = client.messages.create(
         model=model,
-        max_tokens=120,
-        messages=[{"role": "user", "content": prompt}],
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": build_prompt(code, signals, extra_context)}],
     )
     return msg.content[0].text.strip()
-
-
-def _fallback(code: str, state: str, signals: dict) -> str:
-    s = signals
-    return (
-        f"{code}: done-ratio {s.get('done_ratio', 0):.2f}, "
-        f"broker net buy {s.get('broker_net_buy_streak', 0)} hari, "
-        f"RVOL {s.get('rvol', 0):.1f}x -> {state}."
-    )

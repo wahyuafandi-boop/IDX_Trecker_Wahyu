@@ -84,6 +84,19 @@ def test_bearish_allows_markup_when_outperform():
     assert classify(s, _bearish_eff()) == "MARKUP_START"
 
 
+def test_bearish_rs_tolerance_allows_knife_edge():
+    # rs_min longgar (-0.01, config 2026-07): saham yang imbang kasar dgn IHSG
+    # (RS ~ 0, kalah < 1%) LOLOS gate bearish — memulihkan setup layak yang dulu
+    # ke-veto di rs_min=0.0 (mis. ISAT 3 Jul: base lolos + queue menumpuk →
+    # CONFIRMED). Underperform jelas (< -0.01) tetap keblok → bukan pelonggaran buta.
+    eff = _bearish_eff(rs_min=-0.01)
+    base = dict(done_ratio=0.68, rvol=2.6, close_in_range=0.8, broker_net_buy_streak=3)
+    edge = _base(**base, queue_imbalance=1.8, relative_strength=-0.005)
+    assert classify(edge, eff) == "MARKUP_CONFIRMED"     # dulu NEUTRAL di rs_min=0.0
+    lag = _base(**base, queue_imbalance=1.8, relative_strength=-0.05)
+    assert classify(lag, eff) == "NEUTRAL"               # kalah jelas → tetap keblok
+
+
 def test_rs_gate_noop_when_not_required_backward_compat():
     # Regresi backward-compat: tanpa profil (require_relative_strength absent/False),
     # klausa RS tak berpengaruh — bahkan rs sangat negatif tetap MARKUP_START.

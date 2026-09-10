@@ -11,16 +11,26 @@ dan baca KOMPOSISI antrian + KONTEKS akumulasi broker (tape-reading bandarmologi
     nampung = BULLISH); tanpa akum = suplai asli. Tembok BID tanpa akum = FAKE_BID
     (jebakan), dgn akum = demand asli.
   - lacak tembok OFFER antar-siklus (kolom `ovr`): 'v' = mengecil mendadak
-    (dicabut/dimakan, sering pemicu jebol/entry), '^' = menebal, '=' stabil,
-    'beku' = order book identik persis siklus lalu (data cache/illikuid -> jangan
-    dipercaya penuh). (Beda cabut-vs-makan butuh tape, belum diambil.)
+    (sering pemicu jebol/entry), '^' = menebal, '=' stabil, 'beku' = order book
+    identik persis siklus lalu (data cache/illikuid -> jangan dipercaya penuh).
+  - saat tembok menyusut ('v') pada saham akumulasi, cek bar intraday (+1 call)
+    untuk memilah CABUT vs DIMAKAN (ajaran tape-reading "liat done detail"):
+    'vEAT' = dimakan (harga menyentuh level tembok + ada volume -> demand asli,
+    timing entry klasik); 'vCUT' = dicabut (harga tak pernah sentuh level ->
+    fake offer terkonfirmasi, tunggu demand nyata). Tak terbedakan -> tetap 'v'.
+  - monitor BOW utk saham pantau (state ACCUMULATION_ONGOING di sidecar
+    `live_levels.json` dari run_daily): harga (mid bid/offer) masuk zona BOW dua
+    siklus berturut + bid top dijaga/di-refill -> ping "BOW-AC" ("BOW after
+    confirmasi di bid nya di refil"); mid jebol support -> "Setup Batal".
+    One-shot per kode per sesi, 0 call ekstra (pakai order book yang sama).
 
 Verdict: FAKE-OVER+ / DEMAND-REAL (bullish) · FAKE-BID! / supply-real (hindari) ·
 nampung++ / DEMAND>> · ritel~~ · seimbang. Threshold di settings.yaml:
 queue_bigmoney_lot_per_order, queue_top_levels, queue_wall_pull_drop,
 broker_net_buy_streak_min (ambang akumulasi).
 
-KUOTA: 1 call/saham/siklus + 1 call/saham broker sekali di start. 5 saham, interval
+KUOTA: 1 call/saham/siklus + 1 call/saham broker sekali di start, + 1 call intraday
+HANYA saat kejadian tembok-menyusut di saham akumulasi (jarang). 5 saham, interval
 120s, 4 jam ~= 600 call/hari (~12k/bulan, aman di paket Advance 30k). Interval
 di-floor 60s; pakai >=120s untuk 5 saham. Cuma jalan saat kamu jalankan.
 
@@ -51,6 +61,7 @@ from markup_radar.signals.price_volume import (
     queue_composition_verdict,
     queue_imbalance,
     queue_intent_verdict,
+    wall_drop_verdict,
 )
 
 _MIN_INTERVAL = 60          # floor keras biar tak menjebol kuota
@@ -119,10 +130,82 @@ def _probe(client: InvezgoClient, codes: list[str]) -> int:
                   f"(levels bid={q['n_bid_levels']:.0f}/offer={q['n_offer_levels']:.0f})")
         except Exception as exc:  # noqa: BLE001
             print(f"[ERROR] {code}: {exc}")
+        print(f"===== {code} : raw intraday_chart (verifikasi cabut-vs-dimakan) =====")
+        try:
+            print(json.dumps(client.intraday_chart(code), indent=2,
+                             ensure_ascii=False)[:1200])
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ERROR] intraday {code}: {exc}")
     print("\nCek: (1) apakah ADA field *freq per level? lot/order = 0 berarti freq "
           "tak ada -> verdict komposisi tumpul. (2) urutan level: indeks 0 = harga "
-          "terbaik? Kalau shape beda, sesuaikan _order_levels/fetch_closing_queue.")
+          "terbaik? Kalau shape beda, sesuaikan _order_levels/fetch_closing_queue. "
+          "(3) intraday: ada field time/high/volume per bar? dipakai wall_drop_verdict.")
     return 0
+
+
+def _load_levels(cfg) -> dict:
+    """Level BOW/entry per kode dari sidecar run_daily (`live_levels.json`).
+
+    Fail-soft {}: file absen/korup -> monitor BOW nonaktif, polling biasa tetap
+    jalan (kompatibel dgn live_today.txt lama tanpa sidecar)."""
+    path = Path(cfg.live_watch.get("levels_file", "live_levels.json"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _mid_price(q: dict) -> float:
+    """Proxy harga terkini dari order book: mid bid/offer terbaik (0 bila kosong)."""
+    bid, off = q.get("bid_best_price", 0.0), q.get("offer_best_price", 0.0)
+    if bid > 0 and off > 0:
+        return (bid + off) / 2
+    return bid or off or 0.0
+
+
+def _bow_check(lv: dict, mid: float, bid_lot: float, prev: dict,
+               hold_ratio: float) -> tuple[str | None, bool]:
+    """Cek zona BOW satu siklus utk saham pantau. Return (event, in_zone).
+
+    event "AC"      : harga di zona BOW dua siklus berturut DAN bid top dijaga/
+                      di-refill (>= hold_ratio x siklus lalu) — operasionalisasi
+                      "BOW after confirmasi di bid nya di refil".
+    event "INVALID" : mid jatuh di bawah support -> setup akumulasi batal.
+    event None      : belum ada kejadian (baru masuk zona, bid terkuras, dst).
+    """
+    if not lv or mid <= 0:
+        return None, False
+    support = float(lv.get("support") or 0.0)
+    bow_lo = float(lv.get("bow_lo") or support)
+    bow_hi = float(lv.get("bow_hi") or 0.0)
+    if support <= 0 or bow_hi <= 0:
+        return None, False
+    if mid < support:
+        return "INVALID", False
+    in_zone = bow_lo <= mid <= bow_hi
+    prev_bid = float(prev.get("bid_lot") or 0.0)
+    if (in_zone and prev.get("bow_in_zone") and prev_bid > 0
+            and bid_lot >= prev_bid * hold_ratio):
+        return "AC", in_zone
+    return None, in_zone
+
+
+def _classify_wall_drop(client, code: str, prev_entry: dict) -> str | None:
+    """Tembok offer menyusut — DIMAKAN atau DICABUT? Cek bar intraday sejak siklus
+    lalu (+1 call, hanya saat kejadian). Fail-soft: None bila data/shape tak
+    mendukung (harga tembok tak kebaca, endpoint error, timestamp tak terparse)."""
+    wall_price = float(prev_entry.get("offer_price") or 0.0)
+    since = prev_entry.get("ts")
+    if wall_price <= 0:
+        return None
+    try:
+        raw = client.intraday_chart(code)
+    except Exception:  # noqa: BLE001 — klasifikasi opsional, jangan ganggu siklus
+        return None
+    bars = raw if isinstance(raw, list) else (
+        (raw or {}).get("items") or (raw or {}).get("data") or [])
+    return wall_drop_verdict(bars, wall_price, since=since)
 
 
 def _accumulation_flags(client, codes, cfg) -> tuple[dict[str, bool], dict[str, str]]:
@@ -152,10 +235,13 @@ def _accumulation_flags(client, codes, cfg) -> tuple[dict[str, bool], dict[str, 
 
 
 def _cycle(client, codes, cfg, prev, last_verdict, accum, accum_lbl,
-           *, send_tg, token, chat_id) -> int:
+           *, levels, bow_done, send_tg, token, chat_id) -> int:
     """Satu siklus polling semua kode. Return jumlah kode yang BERHASIL ditarik
-    (0 = semua gagal -> dipakai main() untuk deteksi network down & auto-stop)."""
-    from markup_radar.alert import send_telegram
+    (0 = semua gagal -> dipakai main() untuk deteksi network down & auto-stop).
+
+    `levels` = sidecar live_levels.json (monitor BOW utk state pantau);
+    `bow_done` = kode yang event BOW-nya sudah dilaporkan (one-shot per sesi)."""
+    from markup_radar.alert import format_live_bow, format_live_signal, send_telegram
 
     demand = float(cfg.thresholds.get("queue_imbalance_demand", 1.0))
     bigmoney = float(cfg.thresholds.get("queue_bigmoney_lot_per_order", 20.0))
@@ -188,25 +274,75 @@ def _cycle(client, codes, cfg, prev, last_verdict, accum, accum_lbl,
               q["offer_top_freq"], q["bid_volume"], q["offer_volume"])
         stale = p.get("fp") is not None and fp == p["fp"]
         owall = "beku" if stale else _wall_trend(q["offer_top_lot"], p.get("owall"), wall_drop)
-        prev[code] = {"imb": imb, "owall": q["offer_top_lot"], "fp": fp}
+        # Tembok menyusut di saham akumulasi -> pilah CABUT vs DIMAKAN via bar
+        # intraday (+1 call hanya saat kejadian; None bila tak terbedakan).
+        wall_pulled = owall == "v" and accum.get(code, False)
+        wall_verdict = _classify_wall_drop(client, code, p) if wall_pulled else None
+
+        # Monitor BOW (state pantau, level dari sidecar EOD) — one-shot per sesi.
+        lv_bow = levels.get(code) or {}
+        bow_event, bow_in_zone = (None, False)
+        if lv_bow.get("state") == "ACCUMULATION_ONGOING" and code not in bow_done:
+            hold = float(cfg.live_watch.get("bow_bid_hold_ratio", 0.9))
+            bow_event, bow_in_zone = _bow_check(
+                lv_bow, _mid_price(q), q["bid_top_lot"], p, hold)
+
+        prev[code] = {"imb": imb, "owall": q["offer_top_lot"], "fp": fp,
+                      "offer_price": q.get("offer_best_price", 0.0),
+                      "bid_lot": q["bid_top_lot"], "bow_in_zone": bow_in_zone,
+                      "ts": dt.datetime.now()}
+        owall_disp = {"EATEN": "vEAT", "PULLED": "vCUT"}.get(wall_verdict, owall)
         print(f"  {code:6s} {accum_lbl.get(code, '?'):8s} "
               f"{q['bid_top_lot']:>9.0f} {q['offer_top_lot']:>9.0f} {imb:>6.2f} "
               f"{q['bid_lot_per_order']:>7.1f} {q['offer_lot_per_order']:>7.1f}  "
-              f"{_TAG[verdict]:11s} {owall:4s} {arrow}")
+              f"{_TAG[verdict]:11s} {owall_disp:4s} {arrow}")
+        if bow_event:
+            bow_done.add(code)
+            tag = ("harga masuk zona BOW + bid dijaga" if bow_event == "AC"
+                   else "jebol support — setup batal")
+            print(f"         ↳ BOW-{bow_event}: {tag} "
+                  f"(zona {lv_bow.get('bow_lo')}-{lv_bow.get('bow_hi')}, "
+                  f"support {lv_bow.get('support')})")
+            if send_tg:
+                try:
+                    send_telegram(token, chat_id, format_live_bow(
+                        code, kind=bow_event,
+                        bow_lo=float(lv_bow.get("bow_lo") or 0),
+                        bow_hi=float(lv_bow.get("bow_hi") or 0),
+                        support=float(lv_bow.get("support") or 0),
+                        time_str=ts[:5],
+                    ))
+                except Exception as exc:  # noqa: BLE001
+                    print(f"  [WARN] telegram: {exc}")
 
         # Telegram opsional, hindari spam: (a) TRANSISI ke verdict bullish, atau
         # (b) tembok offer dicabut/mengecil ('v') saat saham lagi akumulasi
         # (pemicu jebol klasik fake-over).
         flip_bullish = verdict in _BULLISH and last_verdict.get(code) not in _BULLISH
-        wall_pulled = owall == "v" and accum.get(code, False)
         if send_tg and (flip_bullish or wall_pulled):
-            why = _TAG[verdict] if flip_bullish else "tembok OFFER dicabut/mengecil"
+            # Pesan ramah-awam (gaya auto-trading); flip bullish diprioritaskan
+            # atas wall-pulled bila keduanya kebetulan sama-sama benar.
+            # Angka konkret tembok diambil dari siklus SEBELUMNYA (`p`): itulah
+            # kondisi tembok sebelum menyusut. `offer_price` = harga tempat
+            # tembok berdiri; `owall` = ukurannya. Level entry/SL dari sidecar
+            # EOD supaya pesan bisa langsung bilang "sudah lewat entry atau belum".
+            lv = levels.get(code) or {}
             try:
-                send_telegram(token, chat_id,
-                              f"[LIVE] {code}: {why} (imb {imb:.2f}, "
-                              f"bid {q['bid_lot_per_order']:.0f} / off "
-                              f"{q['offer_lot_per_order']:.0f} lot/order, "
-                              f"{accum_lbl.get(code, '?')}). Pantau & kelola risiko sendiri.")
+                send_telegram(token, chat_id, format_live_signal(
+                    code,
+                    verdict=verdict if flip_bullish else None,
+                    wall_pulled=not flip_bullish,
+                    wall_verdict=wall_verdict if not flip_bullish else None,
+                    imb=imb,
+                    accum_label=accum_lbl.get(code, ""),
+                    time_str=ts[:5],
+                    wall_price=p.get("offer_price") or q.get("offer_best_price"),
+                    wall_before=p.get("owall"),
+                    wall_after=q["offer_top_lot"],
+                    price_now=_mid_price(q),
+                    entry=lv.get("entry"),
+                    stop_loss=lv.get("support"),
+                ))
             except Exception as exc:  # noqa: BLE001
                 print(f"  [WARN] telegram: {exc}")
         last_verdict[code] = verdict
@@ -270,14 +406,22 @@ def main() -> int:
     print(f"[info] akumulasi: "
           f"{', '.join(f'{c}={accum_lbl[c]}' for c in codes)}", file=sys.stderr)
 
+    # Level BOW/entry dari sidecar EOD (opsional; {} = monitor BOW nonaktif).
+    levels = _load_levels(cfg)
+    watch_bow = [c for c in codes
+                 if (levels.get(c) or {}).get("state") == "ACCUMULATION_ONGOING"]
+    if watch_bow:
+        print(f"[info] monitor BOW aktif: {', '.join(watch_bow)}", file=sys.stderr)
+
     prev: dict[str, dict] = {}
     last_verdict: dict[str, str] = {}
+    bow_done: set[str] = set()
     deadline = time.monotonic() + args.duration * 60 if args.duration else None
     fail_streak = 0
     try:
         while True:
             ok = _cycle(client, codes, cfg, prev, last_verdict, accum, accum_lbl,
-                        send_tg=args.telegram,
+                        levels=levels, bow_done=bow_done, send_tg=args.telegram,
                         token=cfg.telegram_bot_token, chat_id=cfg.telegram_chat_id)
             # Auto-stop saat jaringan/Invezgo down (penting saat unattended/terjadwal):
             # kalau SEMUA saham gagal beberapa siklus berturut, berhenti — jangan

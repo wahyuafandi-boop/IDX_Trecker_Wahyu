@@ -1,0 +1,36 @@
+# MCP Invezgo — PROJECT COMPOSE TERPISAH dari n8n (sengaja: tak menyentuh
+# /docker/n8n/docker-compose.yml yang menjalankan produksi). Traefik pakai docker
+# provider yang memantau SELURUH socket, jadi cukup gabung network n8n_default +
+# label; label go-live ada di docker-compose.public.yml.
+#
+# FASE VERIFIKASI (file ini saja): bind 127.0.0.1:8848 + TANPA label Traefik →
+# TIDAK terekspos publik. Aman buat uji jalan di VPS.
+services:
+  invezgo-mcp:
+    build:
+      context: ../..                    # root repo IDX_Trecker_Wahyu
+      dockerfile: docker/mcp.Dockerfile
+    image: invezgo-mcp:latest
+    container_name: invezgo-mcp
+    restart: unless-stopped
+    env_file:
+      - ./mcp.env                       # INVEZGO_API_KEY + MCP_AUTH_TOKEN (gitignored)
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8848
+      - MCP_QUOTA_FILE=/data/mcp_quota.json
+      - MCP_MAX_CALLS_PER_DAY=500        # guard: cap konsumsi kuota Invezgo lewat MCP
+      - MCP_MONTHLY_BUDGET=5000          # sisakan >=25k utk cron EOD/live
+    volumes:
+      - invezgo_mcp_data:/data           # budget persisten (restart tak reset)
+    ports:
+      - "127.0.0.1:8848:8848"           # verifikasi lokal VPS; BUKAN publik
+    networks:
+      - n8n_default
+
+networks:
+  n8n_default:
+    external: true                       # dibuat oleh compose n8n
+
+volumes:
+  invezgo_mcp_data:

@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 narrative = ["anthropic>=0.40"]
 dev = ["pytest>=8.0"]
+mcp = ["mcp>=1.9"]   # MCP server (Streamable HTTP) — bungkus InvezgoClient utk Claude
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -19,6 +19,8 @@ windows:
   volume_ma: 20        # MA20 untuk RVOL (S6)
   ihsg_ma: 50          # MA50 IHSG (S9) + regime selector (BULLISH/BEARISH)
   broker_streak_lookback: 5  # berapa hari ke belakang untuk net-buy streak (S3)
+  compatibility_lookback: 45  # hari kalender S11 compatibility — korelasi net broker
+                              # akumulator vs return harian (1 call sama dgn S3)
   rs_window: 20        # S10 relative strength (return saham - return IHSG)
   donchian_lookback: 20  # resis/support untuk trade levels (entry/SL/TP)
 
@@ -48,6 +50,12 @@ thresholds:
                               # LIVE-only (order book tak historis → backtest S5=0,
                               # CONFIRMED tak muncul). Tune 1.0–1.2 setelah data live
                               # terkumpul; >1.0 = butuh demand antri lebih dominan.
+  queue_imbalance_cap: 10.0   # S5 (EOD): rasio bid/offer di ATAS ini dianggap buku
+                              # offer nyaris kosong (close near-ARA) → tak andal,
+                              # di-nol-kan agar tak minting CONFIRMED palsu. Kalibrasi
+                              # data 2026-07 (n=437): p50 rasio ~1.1, p90 ~37, ekor
+                              # sampai 571rb (artefak offer tipis). 10 = loloskan demand
+                              # wajar 1–10x, tolak ekor absurd. Jalur LIVE tak pakai cap.
   queue_top_levels: 4         # S5 live: jumlah baris bid/offer "nyata" yg dibaca
                               # (bandarmologi: 4 teratas; level dalam sering diada-ada).
   queue_bigmoney_lot_per_order: 20  # S5 live: lot/order (lot/freq) top-N >= ini =
@@ -82,7 +90,12 @@ regime_profiles:
   BEARISH:
     rvol_spike: 2.5           # NAIK di market lemah, bukan turun (F8: tetap; n bear terlalu kecil)
     require_relative_strength: true   # F8: ablation inconclusive (n=1v2) -> KEEP (default selektif)
-    rs_min: 0.0               # >0 = harus outperform; 0 = minimal seimbang dgn IHSG
+    rs_min: -0.01             # toleransi knife-edge: lolos asal tak kalah >1% dari IHSG
+                              # (tak wajib menang). rs_min 0.0 memblok setup layak yang
+                              # kalah setipis pembulatan — mis. ISAT 3 Jul (queue CONFIRMED)
+                              # ke-veto padahal RS ~0. Dampak terukur data 2026-07: +2 sinyal
+                              # saja (COCO START + ISAT CONFIRMED pertama), FLAT -0.005..-0.05
+                              # (rvol 2.5 tetap plafon) -> pelonggaran terukur, bukan floodgate.
     atr_mult_sl: 1.8
     rr_target: 2.0
     risk_per_trade: 0.005     # potong setengah
@@ -113,6 +126,40 @@ alert_states:
   - ACCUMULATION_ONGOING
   - DISTRIBUTION_WARNING
 
+# Gate alert (2026-09-09) — memotong jalur KIRIM saja; classifier/DB/Sheets tetap
+# mencatat semua kode apa adanya, alasan tolak masuk kolom DB `suppressed` supaya
+# yang disaring tetap bisa dievaluasi forward.
+#
+# Dasar empiris: audit 405 sinyal produksi 18 Jun-8 Sep 2026 vs baseline
+# date-matched 3.819 baris NEUTRAL (universe yang sama, hari yang sama).
+#   - Apa adanya alert KALAH base-rate: win +10d 57% vs 59%, excess -1.4% vs -0.8%.
+#   - range_position > 0.85 (42% dari alert!): win 45%, excess -2.8%.
+#     Dibuang -> alert MENANG baseline: 66% vs 61%. Zona 0.30-0.60: 77% vs 68%,
+#     excess +1.8%. Bertahan in-sample (77%) & out-of-sample (78%).
+#   - prior_run > 15%/10 bar: win 43%, median -0.9%.
+#   - broker_net_buy_streak = 0: win 43%, excess -2.1%.
+#   - Alert ke-2 dst dalam satu deretan: MFE median +9.5% -> +5.7%, hit+5% 72% -> 55%.
+#     402 alert historis = cuma 196 ide unik.
+# Perkiraan dampak: ~8.6 alert/malam -> ~2-3, win +10d naik ke kisaran 66-77%.
+#
+# PERINGATAN: angka di atas dari SATU periode 3 bulan yang 88% regime BULLISH.
+# Belum teruji di pasar turun. Set enabled: false untuk kembali ke perilaku lama.
+alert_filters:
+  enabled: true
+  max_range_position: 0.85   # tolak sinyal beli saat close di puncak range 20 bar
+  max_prior_run: 0.15        # tolak yang sudah lari >15% dalam prior_run_window bar
+  min_broker_streak: 1       # tolak yang tak punya satu pun hari net-buy broker
+  dedup_episode: true        # kirim hanya alert PERTAMA tiap episode
+  episode_gap_days: 10       # jeda >10 hari kalender = episode (ide) baru
+  # Gate posisi/prior-run/streak = gate SISI BELI. DISTRIBUTION_WARNING sengaja
+  # TIDAK di sini: itu peringatan jual yang secara definisi (near_range_high di
+  # classifier) muncul dekat puncak range — mem-filternya dengan aturan beli akan
+  # membungkamnya justru saat paling relevan. Dedup episode tetap berlaku untuknya.
+  buy_side_states:
+    - MARKUP_CONFIRMED
+    - MARKUP_START
+    - ACCUMULATION_ONGOING
+
 # Telegram: chat tujuan alert.
 # chat_id boleh di sini (bukan rahasia). TOKEN WAJIB lewat env/secret
 # (TELEGRAM_BOT_TOKEN), jangan pernah ditaruh di file ini.
@@ -120,12 +167,64 @@ alert_states:
 telegram:
   chat_id: 6788518859
 
-# Aktifkan narasi via Claude API (Phase 6). Model claude-opus-4-8 (jangan
-# downgrade tanpa alasan; per panduan claude-api). Fallback rule-based otomatis
-# bila SDK/keys tak ada. ~1 call Opus per sinyal actionable/run (biaya kecil).
+# Narasi bahasa awam per sinyal (Phase 6).
+#
+# provider: "nvidia" (NVIDIA NIM, gratis — butuh NVIDIA_API_KEY di .env)
+#           "claude" (Anthropic — butuh ANTHROPIC_API_KEY di .env)
+#           "none"   (rule-based saja, tanpa panggilan LLM)
+# Ganti provider = ganti baris ini saja, kode tidak perlu disentuh.
+#
+# fallback_models dipakai berurutan kalau model utama kena 429/error. NIM
+# membatasi ~40 RPM *best-effort* dan tidak melayani permintaan naik kuota,
+# jadi failover ini bukan hiasan. Kalau semua gagal -> ringkasan rule-based,
+# alert tetap terkirim.
+#
+# Beban nyata: ~8 sinyal actionable per run, 1x sehari. Jauh di bawah limit.
+# Model dipilih lewat benchmark berjuri 2026-07-23/24 (scripts/bench_narrative.py
+# + panel juri 3-lensa: fidelitas fakta / keterbacaan awam / kepatuhan).
+# Hasil kunci — HINDARI, semua membalik fakta atau merusak Bahasa Indonesia:
+#   nemotron-3-nano-30b   12 fatal (broker "jual" padahal net beli; frasa ngawur)
+#   nemotron-3-super-120b  4 fatal ("sentusias pasar", "ambang penjual dominan")
+#   llama-4-maverick       2 fatal (posisi tutup dibalik: 0.33 ditulis "dekat puncak")
+#   llama-3.3-nemotron-49b 2 fatal (dominasi penjual dinetralkan jadi "seimbang")
+#   gpt-oss-20b            3 fatal (narasi terpotong di tengah kalimat)
+# TIDAK dilayani di /v1/chat/completions walau ada di katalog /v1/models (404):
+#   qwen3.5-397b, kimi-k2.6, nemotron-nano-3-30b
+#
+# 3 model di bawah = 0 fatal di semua kasus, TIGA penyedia berbeda (DeepSeek ->
+# OpenAI -> Google) supaya failover benar-benar independen saat satu penyedia
+# down. Utama = deepseek: satu-satunya 0-fatal di KETIGA fixture (termasuk jebakan
+# bullish PACK) + latensi terbaik di kelasnya (~45s). gemma skornya tertinggi tapi
+# SERING TIMEOUT (gagal PACK 2x saat uji) -> ditaruh cadangan terakhir.
+# PROBE ULANG 2026-09-09 (scripts/probe_narrative_models.py) — audit menemukan
+# narasi LLM MATI TOTAL sejak 7 Agustus 2026: seluruh model di config kena
+# HTTP 410 Gone, 20 run berjalan dgn narasi rule-based tanpa terdeteksi karena
+# kegagalan cuma jadi baris [WARN] per sinyal. Sekarang run_daily menghitungnya
+# dan berteriak kalau mayoritas narasi jatuh ke rule-based.
+#
+# Hasil probe 22 model katalog ke /v1/chat/completions — HANYA 2 YANG HIDUP:
+#   moonshotai/kimi-k3        OK ~13s  narasi akurat, 0 pembalikan fakta  <- utama
+#   openai/gpt-oss-20b        OK  ~9s  akurat, frasa agak kaku            <- cadangan
+# EOL (410 Gone), JANGAN dipakai lagi:
+#   deepseek-ai/deepseek-v4-pro (EOL 2026-08-07), openai/gpt-oss-120b (EOL 2026-09-03)
+# Ada di katalog TAPI 404 di chat/completions (jebakan katalog yang sudah dikenal):
+#   moonshotai/kimi-k2.6, nvidia/llama-3.1-nemotron-ultra-253b-v1, mistralai/mistral-large,
+#   mistralai/mistral-large-2-instruct, nvidia/llama-3.1-nemotron-70b-instruct,
+#   microsoft/phi-3.5-moe-instruct, google/gemma-3-12b-it, mistralai/mixtral-8x22b-v0.1,
+#   nv-mistralai/mistral-nemo-12b-instruct
+# TIMEOUT bahkan pada 150 detik (terdaftar tapi praktis tak terpakai):
+#   deepseek-ai/deepseek-v4-pro-0813, deepseek-ai/deepseek-v4-flash-0731,
+#   google/gemma-4-31b-it, mistralai/mistral-nemotron, meta/llama-3.2-90b-vision-instruct
+#
+# CATATAN: cuma 2 model hidup = bantalan tipis. Kalau keduanya EOL, narasi jatuh
+# ke rule-based lagi — tapi kali ini run_daily akan melapor. Jalankan ulang
+# scripts/probe_narrative_models.py saat peringatan itu muncul.
 narrative:
   enabled: true
-  model: claude-opus-4-8
+  provider: nvidia
+  model: moonshotai/kimi-k3
+  fallback_models:
+    - openai/gpt-oss-20b
 
 # Mirror hasil scan ke Google Sheets (persistensi histori + dashboard Phase 6).
 # Runner GitHub Actions ephemeral → SQLite reset tiap run; Sheets jadi penampung
@@ -136,5 +235,89 @@ narrative:
 # spreadsheet ke email service-account (Editor) dulu. Kosong/lib absen = sink mati.
 sheets:
   enabled: true
-  spreadsheet_id: ""     # isi ID Google Sheet tujuan (dari URL .../d/<ID>/edit)
-  worksheet: signals
+  # "Markup Radar - Signal Log" (share Editor ke service-account trading-agent).
+  spreadsheet_id: "1hcgZ2CghsxR9TFe8mvvajDr52Y6K5xtiBXi1k7aPsGI"
+  worksheet: signals               # log append-only hasil scan harian
+  eval_worksheet: evaluation       # detail evaluasi per sinyal (ditulis-ulang)
+  eval_summary_worksheet: eval_summary  # rapor win-rate per state (ditulis-ulang)
+
+# Auto-screener: refresh watchlist_today.txt dari Invezgo (POST /screener/screen).
+# Dijalankan run_screen.sh di VPS sebelum run_eod.sh.
+#
+# CATATAN PENTING (probe live API 2026-06-25, di-update 2026-07-07):
+#  - category "COMPOSITE" balik KOSONG di endpoint screener. Universe penuh
+#    (~900 saham) diperoleh dari gabungan 11 kategori sektor IDX di bawah.
+#  - Fungsi indikator: `sma()` KINI DIDUKUNG (probe 2026-07-07: `volume >
+#    2 * sma("volume", 10)` -> HTTP 201; klaim lama 25 Jun "ema/sma -> 400 Unknown
+#    function" sudah USANG — API di-upgrade). `ema()` belum dikonfirmasi (probe
+#    kena 429 throttle; endpoint ini rewel utk burst, tapi 1 call/run aman).
+#    Bahasa formula: variabel skalar (close/value/volume/open/high/low/change +
+#    fundamental per/eps/roa) + `sma()` + operator 'and'/'or' (BUKAN '&&').
+#  - Formula PRODUKSI saat ini sengaja tetap filter likuiditas kasar
+#    'close > 100 and value > 3000000000' (~178 saham, dipotong max_watchlist);
+#    RVOL-spike & tren (S6/S7) tetap dihitung run_daily.py atas watchlist ini.
+#    PELUANG (belum dipasang): tambah 'and volume > 2 * sma("volume", 20)' untuk
+#    pre-filter kandidat rvol tinggi — TAPI itu bakal starve pipeline
+#    ACCUMULATION_ONGOING (akumulasi = volume sepi). Perlu watchlist terpisah /
+#    formula OR kalau mau markup + akumulasi dua-duanya.
+screener:
+  # DINONAKTIFKAN 2026-07-18: watchlist kini UNIVERSE TETAP 100 emiten
+  # (keputusan user, proyek Stock Advisor) — 50 existing + 50 pick baru
+  # tersebar merata 11 sektor, fundamental terbaik (tier roa/per), harga
+  # 100-2500. Dibangun scripts/build_universe_100.py (manifest audit di
+  # data/universe_100.json). enabled=false → screen_universe.py exit 0
+  # TANPA menulis, watchlist_today.txt terjaga. Re-build/refresh universe:
+  # jalankan ulang build_universe_100.py (manual, bukan terjadwal).
+  enabled: false
+  category: ["IDXENERGY", "IDXBASIC", "IDXINDUST", "IDXNONCYC", "IDXCYCLIC", "IDXHEALTH", "IDXFINANCE", "IDXPROPERT", "IDXTECHNO", "IDXINFRA", "IDXTRANS"]
+  max_watchlist: 50            # cap jumlah kode (kontrol kuota; run_eod ~4-5 call/saham)
+  formula: 'close > 100 and value > 3000000000'   # likuiditas/harga; indikator dihandle EOD engine
+
+# Insider & corporate action enrichment (konteks tambahan di alert Telegram +
+# narasi). Sumber: /analysis/shareholder-insider (market-wide, 1-3 call/run,
+# intersect lokal) + /analysis/calendar per kode ACTIONABLE saja (di-cap
+# max_calendar_codes). Endpoint diverifikasi via scripts/verify_insider.py
+# (2026-07-04). Insider net + = akumulasi orang dalam (konfirmasi markup),
+# - = divestasi saat sinyal MARKUP -> red flag yang layak dilihat sebelum entry.
+insider:
+  enabled: true
+  lookback_days: 30          # window laporan insider ke belakang
+  calendar_horizon_days: 21  # corporate action ke depan (selaras hold 10-20d)
+  max_calendar_codes: 10     # cap call calendar per run (kontrol kuota)
+
+# Struktur kepemilikan (float control) & rotasi broker — Fase A: enrichment
+# alert/narasi utk kode ACTIONABLE saja (3 call/kode: KSEI + komposisi +
+# broker summary), TIDAK menyentuh classifier/confidence (additive; angkat
+# jadi bobot/gate nanti setelah data forward cukup, pelajaran F8).
+# Teori bandarmologi: ritel < ~15-20% dari free float = supply terkunci,
+# gampang di-markup; ritel menyusut antar bulan = barang pindah ke tangan
+# kuat; ritel jual + asing/smart tampung di broker summary = rotasi bullish.
+ownership:
+  enabled: true
+  ksei_range_months: 6   # window tren KSEI (bulanan; lag ~1 bulan wajar)
+  max_codes: 10          # cap kode actionable yang di-enrich (kontrol kuota)
+
+# Mapping kode broker -> kategori (HEURISTIK komunitas — broker besar melayani
+# campuran nasabah & asing bisa nominee lokal; edit bebas, di luar daftar =
+# 'other'). Dipakai rotasi net-flow per kategori (ownership enrichment).
+broker_categories:
+  retail: [YP, PD, XC, XL, NI, SQ, EP, AG]      # Mirae, IndoPremier, Ajaib,
+                                                # Stockbit, BNI, BCA, MNC, Kiwoom
+  foreign: [AK, BK, ZP, YU, KZ, RX, CG, MS]     # UBS, JPM, Maybank, CGS Intl,
+                                                # CLSA, Macquarie, Citi, MorganS
+  smart: [AZ, CC, DX, LG, IF, YJ]               # Sucor, Mandiri, Bahana,
+                                                # Trimegah, Samuel, Lotus
+
+# Live-watch fokus: dari hasil scan EOD, run_daily menulis subset kode setup terbaik
+# ke live_today.txt; run_live.sh memantau file itu (BUKAN 50 kode penuh watchlist).
+# Tujuan: hemat kuota live ~80% (50 -> ~5 kode) tanpa kehilangan nilai trading —
+# konfirmasi order book live cukup di setup MARKUP terbaik. Live = validasi + timing
+# entry di setup hasil scan malam, bukan generator sinyal. Lihat scripts/live_watch.py.
+live_watch:
+  max_codes: 5                                          # cap kode dipantau live (kontrol kuota)
+  # Tier setup: MARKUP_* = konfirmasi entry breakout (prioritas slot);
+  # ACCUMULATION_ONGOING = monitor zona BOW (harga masuk zona + bid dijaga).
+  include_states: ["MARKUP_CONFIRMED", "MARKUP_START", "ACCUMULATION_ONGOING"]
+  out_file: live_today.txt
+  levels_file: live_levels.json  # sidecar level BOW/entry per kode (ditulis run_daily)
+  bow_bid_hold_ratio: 0.9        # bid top "dijaga" bila >= 90% dari siklus lalu

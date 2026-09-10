@@ -24,6 +24,7 @@ class StockData:
     done_bid_value: float = 0.0               # S1/S2 (done at bid = sell)
     broker_summary: pd.DataFrame = field(default_factory=pd.DataFrame)  # S4
     broker_daily_net: list[float] = field(default_factory=list)         # S3 (kronologis)
+    broker_daily_net_dated: list[tuple[str, float]] = field(default_factory=list)  # S11 (date, net)
     closing_bid_volume: float = 0.0           # S5
     closing_offer_volume: float = 0.0         # S5
     foreign_net_value: float = 0.0            # S8
@@ -69,9 +70,11 @@ def compute_signals(
         # S4
         "broker_concentration": broker_flow.broker_concentration(data.broker_summary, top_n),
         "broker_turning_net_sell": broker_flow.broker_turning_net_sell(data.broker_daily_net),
-        # S5
+        # S5 (cap opsional: rasio meledak dari buku offer tipis di-nol-kan agar
+        # tak minting CONFIRMED palsu — lihat price_volume.queue_imbalance).
         "queue_imbalance": price_volume.queue_imbalance(
-            data.closing_bid_volume, data.closing_offer_volume
+            data.closing_bid_volume, data.closing_offer_volume,
+            cap=t.get("queue_imbalance_cap"),
         ),
         # S6
         "rvol": rvol_val,
@@ -82,6 +85,17 @@ def compute_signals(
             t.get("near_range_high", 0.8),
         ),
         "price_ranging": price_volume.price_ranging(df["close"]) if not df.empty else False,
+        # S12/S13 konteks timing (TIDAK masuk gate classifier — dipakai gate ALERT
+        # di alert/filters.py, lihat docstring price_volume.range_position).
+        # Tetap dihitung & disimpan untuk SEMUA kode supaya evaluasi forward
+        # punya kolomnya secara native, bukan direkonstruksi belakangan.
+        "range_position": price_volume.range_position(
+            df["high"], df["low"], last.get("close", 0),
+            w.get("donchian_lookback", 20),
+        ) if not df.empty else 0.5,
+        "prior_run": price_volume.prior_run(
+            df["close"], w.get("prior_run_window", 10)
+        ) if not df.empty else 0.0,
         # S8
         "foreign_net": data.foreign_net_value,
         # S9
@@ -90,4 +104,10 @@ def compute_signals(
         "relative_strength": market.relative_strength(
             df["close"], data.ihsg_close, w.get("rs_window", 20)
         ) if not df.empty else 0.0,
+        # S11 compatibility (konteks, TIDAK masuk gate classifier): korelasi net
+        # broker akumulator vs return harian — None = data kurang, bukan 0.
+        "flow_price_corr": broker_flow.flow_price_compatibility(
+            data.broker_daily_net_dated, df,
+            min_overlap=int(w.get("compatibility_min_overlap", 8)),
+        ),
     }

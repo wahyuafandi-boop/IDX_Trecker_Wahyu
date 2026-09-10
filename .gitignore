@@ -1,5 +1,10 @@
 # Secrets
 .env
+docker/invezgo-mcp/mcp.env
+MCP ivezgo_claude.txt
+
+# Bundle MCP resmi Invezgo (biner 5.6MB, bukan source kita — simpan lokal saja)
+invezgo-mcp.mcpb
 
 # Data store
 data/*.db
@@ -9,6 +14,9 @@ data/*.out
 
 # Watchlist harian (paste hasil screener Stockbit; berubah tiap hari)
 watchlist_today.txt
+
+# Subset kode live-watch (top-N setup MARKUP dari scan EOD; di-generate run_daily)
+live_today.txt
 
 # Log run (cron VPS)
 logs/
@@ -22,3 +30,6 @@ __pycache__/
 venv/
 build/
 dist/
+
+# Sidecar level BOW/entry live-watch (di-generate run_daily)
+live_levels.json

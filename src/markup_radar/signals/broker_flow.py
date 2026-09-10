@@ -38,6 +38,43 @@ def broker_concentration(broker_summary: pd.DataFrame, top_n: int = 5) -> float:
     return float(top / total_buy)
 
 
+def flow_price_compatibility(
+    dated_net: Sequence[tuple[str, float]],
+    ohlcv: pd.DataFrame,
+    *,
+    min_overlap: int = 8,
+) -> float | None:
+    """S11 'compatibility' (konsep tape-reading/NeoBDM): korelasi Pearson antara
+    net harian broker akumulator (agregat top-N, S3) dan return harian saham.
+
+    Tinggi (>~0.5) = yang akumulasi memang penggerak harga -> sinyal lebih layak
+    dipercaya (kasus TINS ~70%). Rendah/negatif = broker borong tapi harga tak
+    mengikuti (kasus BUMI: akum asing, harga diam) -> sinyal lemah. Join by-date
+    (bukan positional) karena tanggal broker bisa bolong vs OHLCV.
+
+    Return None bila overlap tanggal < min_overlap atau salah satu deret nyaris
+    konstan (korelasi tak bermakna) — None berarti "tak ada bacaan", bukan 0.
+    """
+    if not dated_net or ohlcv is None or ohlcv.empty or "date" not in ohlcv:
+        return None
+    net_by_date = {str(d)[:10]: float(v) for d, v in dated_net}
+    px = ohlcv.sort_values("date")
+    rets = px["close"].pct_change()
+    pairs = [
+        (net_by_date[str(d)[:10]], float(r))
+        for d, r in zip(px["date"], rets)
+        if str(d)[:10] in net_by_date and pd.notna(r)
+    ]
+    if len(pairs) < min_overlap:
+        return None
+    s_net = pd.Series([p[0] for p in pairs])
+    s_ret = pd.Series([p[1] for p in pairs])
+    if s_net.std() == 0 or s_ret.std() == 0:
+        return None
+    corr = s_net.corr(s_ret)
+    return None if pd.isna(corr) else round(float(corr), 3)
+
+
 def broker_turning_net_sell(daily_net: Sequence[float], lookback: int = 3) -> bool:
     """Indikasi broker besar berbalik jual: dari net buy menjadi net sell baru-baru ini."""
     net = list(daily_net)
